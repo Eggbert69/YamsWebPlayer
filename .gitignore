@@ -1,0 +1,36 @@
+## .NET / Visual Studio
+bin/
+obj/
+*.user
+*.suo
+*.vs/
+.vs/
+*.log
+
+## NuGet
+*.nupkg
+*.snupkg
+packages/
+project.lock.json
+project.fragment.lock.json
+
+## Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+
+## User secrets / local config
+appsettings.Development.json
+appsettings.Local.json
+secrets.json
+
+## OS
+.DS_Store
+Thumbs.db
+Desktop.ini

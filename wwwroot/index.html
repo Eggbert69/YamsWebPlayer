@@ -1,0 +1,2210 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>YAMS Web Player</title>
+<style>
+/*
+ * ════════════════════════════════════════════════════════════════════════
+ * CSS CUSTOM PROPERTIES (Design-Tokens)
+ * ════════════════════════════════════════════════════════════════════════
+ * :root definiert globale CSS-Variablen die überall im Stylesheet per
+ * var(--name) genutzt werden können.
+ * Vorteil: Farbe/Größe nur an einer Stelle ändern → wirkt sich überall aus.
+ * ════════════════════════════════════════════════════════════════════════
+ */
+:root {
+  /* ── Hintergrund-Farben (Dunkel-Theme, abgestuft) ── */
+  --bg:        #0d0d1a;   /* Seiten-Hintergrund (dunkelster Ton) */
+  --bg2:       #13132a;   /* Header, Panels, Player-Bar */
+  --card:      #1a1a35;   /* Album-Karten, aufgeklappte Tracks */
+  --card-h:    #22224a;   /* Hover-Zustand von Karten */
+  --border:    #2a2a50;   /* Trennlinien und Rahmen */
+
+  /* ── Akzentfarben ── */
+  --accent:    #7c3aed;   /* Violett: aktive Buttons, Links, Fokus-Ring */
+  --accent-h:  #9d5cf6;   /* Heller Violett: Hover auf Akzent-Elementen */
+  --play:      #22c55e;   /* Grün: Play-Button, spielender Track, Fortschritt */
+  --play-h:    #4ade80;   /* Heller Grün: Hover auf Play-Elementen */
+
+  /* ── Text-Farben ── */
+  --text:      #e2e8f0;   /* Normaler Text (hell auf dunklem Hintergrund) */
+  --muted:     #8892a4;   /* Gedimmter Text: Labels, Sekundärinfos, Icons */
+
+  /* ── Status/Bewertungs-Farben ── */
+  --gold:      #f59e0b;   /* Gold: Wertungs-Sterne, aktive Jahres-Tabs */
+  --green:     #10b981;   /* Grün: "All Time Best"-Button aktiv */
+  --orange:    #f97316;   /* Orange: Warnung/Mittelwert */
+  --danger:    #ef4444;   /* Rot: Fehler, ausgeschlossene Genres */
+
+  /* ── Layout-Maße ── */
+  --radius:    8px;       /* Standard-Abrundung für Buttons/Cards */
+  --player-h:  72px;      /* Höhe der Player-Leiste am unteren Rand */
+  --cover-w:   76px;      /* Breite/Höhe der Album-Cover in der Liste */
+  --num-w:     34px;      /* Breite der laufenden Nummer links */
+  --gap:       12px;      /* Abstand zwischen Cover und Info */
+
+  /*
+   * --track-indent: Einrückung der Song-Liste unter einem Album.
+   * Berechnet so, dass die Songs exakt unter dem Titel-Text beginnen:
+   * 16px (Padding) + Nummernbreite + Gap + Cover-Breite + Gap
+   */
+  --track-indent: calc(16px + var(--num-w) + var(--gap) + var(--cover-w) + var(--gap));
+}
+/* ── Reset & Basis-Styles ─────────────────────────────────────────────────
+   box-sizing:border-box = Padding/Border werden IN die angegebene Breite
+   eingerechnet (nicht dazu addiert). Viel intuitiver als der Browser-Standard.
+   margin:0; padding:0 entfernt Browser-Abstände die sonst unerwarteten
+   Whitespace erzeugen würden. */
+*{box-sizing:border-box;margin:0;padding:0}
+
+/* height:100% auf html UND body nötig damit #app die volle Höhe nutzen kann.
+   system-ui,-apple-system = Nutzt den nativen Systemfont (San Francisco auf
+   Mac/iOS, Segoe UI auf Windows) → kein extra Font-Download nötig. */
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;font-size:14px}
+
+/* Buttons standardmäßig ohne Browser-Styling (kein Rand, kein Hintergrund).
+   cursor:pointer damit immer eine Hand erscheint. */
+button{cursor:pointer;border:none;background:none;color:inherit;font-size:inherit}
+
+/* Einheitliches Styling für alle Eingabefelder und Dropdowns. */
+input,select{background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:6px 10px;font-size:13px;width:100%}
+
+/* Fokus-Ring: 2px violetter Rand statt Browser-Standard (blauer Rand/Glühen).
+   border-color:transparent verhindert doppelten Rand. */
+input:focus,select:focus{outline:2px solid var(--accent);border-color:transparent}
+
+/* Dropdown-Optionen erben NICHT automatisch das Hintergrund-Styling →
+   muss explizit gesetzt werden damit es nicht weiß erscheint. */
+select option{background:var(--bg2)}
+
+/* ── Haupt-Layout ────────────────────────────────────────────────────────
+   #app ist der äußere Container der gesamten Anwendung.
+   display:flex + flex-direction:column = alle Kinder stapeln sich vertikal.
+   height:100vh = genau die Viewport-Höhe (Browser-Fenster, ohne Scrollbalken).
+   So entsteht das "App-Layout": Header oben, scrollbarer Inhalt in der Mitte,
+   Player-Bar unten – ohne dass die Seite als Ganzes scrollt. */
+#app{display:flex;flex-direction:column;height:100vh}
+
+header{
+  background:var(--bg2);border-bottom:1px solid var(--border);
+  padding:10px 20px;display:flex;align-items:center;gap:16px;flex-shrink:0;
+}
+header h1{font-size:18px;font-weight:700;color:var(--accent-h);white-space:nowrap}
+header h1 .web{color:var(--play)}
+#stats-bar{font-size:12px;color:var(--muted);white-space:nowrap}
+.spacer{flex:1}
+
+/* ── Suchleiste ─────────────────────────────────────── */
+#search-panel{
+  background:var(--bg2);border-bottom:1px solid var(--border);
+  padding:10px 20px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;flex-shrink:0;
+}
+.sf{display:flex;flex-direction:column;gap:3px;min-width:120px}
+.sf label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.sf.wide{min-width:190px;flex:1}
+#search-panel .row{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;width:100%}
+#rating-val{color:var(--gold);font-weight:600;min-width:28px;display:inline-block;text-align:right}
+input[type=range]{padding:3px 0;accent-color:var(--accent)}
+.check-group{display:flex;flex-wrap:wrap;gap:4px 10px;padding:5px 0}
+.cb-item{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text);cursor:pointer;white-space:nowrap}
+.cb-item input[type=checkbox]{width:auto;padding:0;accent-color:var(--accent);cursor:pointer}
+.btn{
+  background:var(--accent);color:#fff;border-radius:6px;
+  padding:6px 14px;font-weight:600;font-size:13px;white-space:nowrap;transition:background .15s;flex-shrink:0;
+}
+.btn:hover{background:var(--accent-h)}
+.btn.secondary{background:var(--bg);border:1px solid var(--border);color:var(--muted)}
+.btn.secondary:hover{background:var(--card);color:var(--text)}
+
+/* ── By-Year Options Bar ─────────────────────────────── */
+#byyear-panel{
+  background:var(--bg2);border-bottom:1px solid var(--border);
+  padding:10px 20px;display:none;flex-wrap:wrap;gap:8px;align-items:flex-end;flex-shrink:0;
+}
+#byyear-panel.visible{display:flex}
+.sf-check{
+  display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);
+  cursor:pointer;padding-bottom:6px;white-space:nowrap;
+}
+.sf-check input[type=checkbox]{width:auto;padding:0;accent-color:var(--accent)}
+.report-only{display:none!important}
+#byyear-panel.report-mode .report-only{display:flex!important}
+.best-only{display:none!important}
+#byyear-panel.best-mode .best-only{display:flex!important}
+#rating-val-by{color:var(--gold);font-weight:600;min-width:30px;display:inline-block;text-align:right}
+
+/* ── Jahr-Reiter ────────────────────────────────────────── */
+#year-nav{
+  background:var(--bg2);border-bottom:1px solid var(--border);
+  display:none;align-items:center;flex-shrink:0;padding:0 4px;
+}
+#year-nav.visible{display:flex}
+.yn-scroll{
+  flex-shrink:0;padding:6px 8px;color:var(--muted);font-size:14px;
+  background:none;border:none;cursor:pointer;transition:color .15s;line-height:1;
+}
+.yn-scroll:hover{color:var(--text)}
+#year-tabs{
+  display:flex;gap:4px;overflow-x:auto;flex:1;padding:5px 0;
+  scrollbar-width:none;
+}
+#year-tabs::-webkit-scrollbar{display:none}
+.yn-tab{
+  flex-shrink:0;padding:4px 11px;border-radius:4px;font-size:12px;font-weight:600;
+  border:1px solid var(--border);color:var(--muted);background:var(--bg);
+  cursor:pointer;transition:all .15s;white-space:nowrap;
+}
+.yn-tab:hover{color:var(--text);background:var(--card)}
+.yn-tab.active{color:#000;background:var(--gold);border-color:var(--gold)}
+
+/* ── Toolbar ────────────────────────────────────────── */
+#toolbar{
+  background:var(--bg2);border-bottom:1px solid var(--border);
+  padding:6px 20px;display:flex;align-items:center;gap:10px;flex-shrink:0;flex-wrap:wrap;
+}
+.mode-btns{display:flex;gap:3px;flex-shrink:0}
+.mode-btn{
+  font-size:12px;padding:5px 12px;border-radius:4px;
+  border:1px solid var(--border);color:var(--muted);background:var(--bg);
+  transition:all .15s;font-weight:600;white-space:nowrap;
+}
+.mode-btn:hover{color:var(--text);background:var(--card)}
+.mode-btn[data-mode="all"].active   {color:#fff ;background:var(--accent);border-color:var(--accent)}
+.mode-btn[data-mode="best"].active  {color:#000 ;background:var(--gold)  ;border-color:var(--gold)}
+.mode-btn[data-mode="report"].active{color:#000 ;background:var(--green) ;border-color:var(--green)}
+#result-count{font-size:12px;color:var(--muted)}
+.sort-btns{display:flex;gap:3px}
+.sort-btn{font-size:12px;padding:3px 9px;border-radius:4px;color:var(--muted);border:1px solid transparent;transition:all .15s}
+.sort-btn:hover{color:var(--text);background:var(--card)}
+.sort-btn.active{color:var(--accent-h);border-color:var(--accent);background:var(--card)}
+.sort-btn.active::after{content:' ▲';font-size:10px}
+.sort-btn.active[data-dir="desc"]::after{content:' ▼'}
+#page-size-sel{width:76px;flex-shrink:0}
+#sort-section{display:flex;align-items:center;gap:6px}
+
+/* ── Jahr-Kopfzeile ─────────────────────────────────── */
+.year-header{
+  padding:8px 16px 5px;
+  font-size:12px;font-weight:700;letter-spacing:1.5px;
+  color:var(--accent-h);background:var(--bg);
+  border-bottom:1px solid var(--border);
+  border-top:2px solid var(--border);
+  margin-top:4px;
+}
+.year-header:first-child{margin-top:0;border-top:none}
+
+/* ── Album-Liste ─────────────────────────────────────────────────────────
+   #list-wrap: flex:1 = nimmt den gesamten verbleibenden Platz ein (zwischen
+   Toolbar und Player-Bar). overflow-y:auto = nur dieser Bereich scrollt,
+   nicht die ganze Seite. padding-bottom verhindert dass der letzte Eintrag
+   hinter der fixierten Player-Bar verschwindet. */
+#list-wrap{flex:1;overflow-y:auto;padding-bottom:calc(var(--player-h) + 8px)}
+#album-list{display:flex;flex-direction:column}
+
+/* .album-row: CSS Grid mit 4 Spalten:
+   1. Laufende Nummer (feste Breite --num-w)
+   2. Cover-Bild (feste Breite --cover-w)
+   3. Info-Bereich (flex:1 = nimmt restlichen Platz)
+   4. Chevron-Pfeil (auto = nur so breit wie nötig)
+   align-items:start = alle Spalten oben ausrichten (nicht vertikal zentrieren).
+   transition:background = sanfter Hover-Effekt. */
+.album-row{
+  display:grid;
+  grid-template-columns:var(--num-w) var(--cover-w) 1fr auto;
+  align-items:start;
+  column-gap:var(--gap);
+  padding:10px 16px;
+  border-bottom:1px solid var(--border);
+  cursor:pointer;
+  transition:background .12s;
+}
+.album-row:hover{background:var(--card)}
+.album-row.expanded{background:var(--card);border-bottom:none}
+.album-row.web-active{border-left:3px solid var(--play);padding-left:13px}
+
+.row-num{
+  font-size:11px;color:var(--muted);text-align:right;
+  padding-top:4px;font-variant-numeric:tabular-nums;
+}
+
+.row-cover{width:var(--cover-w);height:var(--cover-w);flex-shrink:0;position:relative}
+.row-cover img{width:100%;height:100%;object-fit:cover;border-radius:5px;display:block}
+.row-cover .no-cover{
+  width:100%;height:100%;border-radius:5px;
+  background:linear-gradient(135deg,#1e1e40,#2a1a50);
+  display:flex;align-items:center;justify-content:center;
+  font-size:28px;color:#4a4a80;
+}
+
+.row-info{min-width:0;padding-top:2px}
+.info-artist{font-size:11px;color:var(--accent-h);font-weight:600;margin-bottom:1px}
+.info-title{
+  font-size:14px;font-weight:700;font-style:italic;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  line-height:1.3;margin-bottom:4px;
+}
+.info-meta{font-size:11px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:3px}
+.info-stats{font-size:11px;color:var(--muted)}
+.info-stats span{margin-right:10px}
+
+.ps-dot{
+  display:inline-block;width:16px;height:16px;
+  border-radius:2px;flex-shrink:0;vertical-align:middle;
+  border:1px solid rgba(0,0,0,.25);
+}
+
+.note{font-weight:700;font-size:10px;letter-spacing:.3px;text-transform:uppercase}
+.note-uber    {color:limegreen}
+.note-sehrgut {color:palegreen}
+.note-gut     {color:yellow}
+.note-gehtso  {color:gold}
+.note-maessig {color:orange}
+.note-schlecht{color:darkred}
+.amg          {font-size:10px;color:var(--muted)}
+.genre-txt    {font-size:11px;color:var(--muted)}
+
+/* ── Genre-Button & Popup ───────────────────────────── */
+.genre-open-btn{
+  display:flex;align-items:center;gap:6px;
+  background:var(--bg);border:1px solid var(--border);
+  color:var(--muted);font-size:12px;padding:5px 11px;
+  border-radius:5px;cursor:pointer;transition:all .15s;white-space:nowrap;
+}
+.genre-open-btn:hover{color:var(--text);border-color:var(--muted)}
+.genre-open-btn.has-sel{border-color:var(--accent);color:var(--accent-h)}
+.genre-badge{
+  background:var(--accent);color:#fff;font-size:10px;font-weight:700;
+  padding:1px 6px;border-radius:10px;display:none;
+}
+.genre-badge.on{display:inline}
+#genre-overlay{display:none;position:fixed;inset:0;z-index:300}
+#genre-overlay.open{display:block}
+#genre-popup{
+  display:none;position:fixed;z-index:301;
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.5);
+  padding:14px 16px;max-width:720px;width:calc(100vw - 32px);
+  max-height:65vh;overflow-y:auto;
+}
+#genre-popup.open{display:block}
+.genre-popup-head{
+  display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;
+}
+.genre-popup-head span{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.genre-popup-close{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1}
+.genre-popup-close:hover{color:var(--text)}
+.genre-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.genre-row+.genre-row{margin-top:6px}
+.genre-row-label{font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.5px;white-space:nowrap;margin-right:2px}
+.g-chip{
+  font-size:11px;padding:3px 9px;border-radius:12px;cursor:pointer;
+  border:1px solid var(--border);color:var(--muted);background:var(--bg);
+  transition:all .12s;white-space:nowrap;user-select:none;
+}
+.g-chip:hover{color:var(--text);border-color:var(--muted)}
+.g-chip.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.g-chip.partial{border-color:var(--accent);color:var(--accent-h)}
+.g-chip.grp{font-weight:700;font-size:10px;letter-spacing:.4px;text-transform:uppercase}
+.g-chip.excluded{background:var(--danger);border-color:var(--danger);color:#fff;text-decoration:line-through}
+.genre-badge.excl{background:var(--danger)}
+
+.row-chevron{
+  color:var(--muted);font-size:16px;padding:4px 2px;
+  align-self:center;transition:transform .2s;user-select:none;
+}
+.album-row.expanded .row-chevron{transform:rotate(90deg)}
+
+/* ── Track-Bereich ───────────────────────────────────────────────────────
+   Dieser Bereich erscheint direkt unter einem Album wenn es aufgeklappt wird.
+   display:none = standardmäßig unsichtbar.
+   .album-tracks.open → display:block = wird sichtbar wenn die Klasse "open"
+   per JavaScript hinzugefügt wird.
+   padding-left: var(--track-indent) richtet Songs exakt unter dem Albumtitel aus. */
+.album-tracks{
+  background:var(--card);
+  border-bottom:1px solid var(--border);
+  padding:0 16px 12px var(--track-indent);
+  display:none;
+}
+.album-tracks.open{display:block}
+
+.tracks-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 4px 8px 0;border-bottom:1px solid var(--border);margin-bottom:6px;
+}
+.tracks-header .tc{font-size:11px;color:var(--muted)}
+.btn-play-album{
+  font-size:11px;font-weight:700;
+  background:var(--play);color:#fff;border-radius:12px;
+  padding:3px 10px;transition:background .15s;
+}
+.btn-play-album:hover{background:var(--play-h);color:#000}
+
+.track-row{
+  display:flex;gap:8px;padding:3px 6px;border-radius:4px;
+  align-items:center;transition:background .1s;
+  cursor:pointer;
+}
+.track-row:hover{background:var(--card-h)}
+.track-row:hover .tr-play{color:var(--play)}
+.track-row.note-1{color:limegreen;font-weight:700}
+.track-row.note-2{color:palegreen;font-weight:700}
+.track-row.note-other{color:var(--muted);font-size:12px}
+.track-row.playing .tr-title{color:var(--play)}
+.track-row.playing .tr-num{color:var(--play)}
+
+.tr-num{width:22px;text-align:right;flex-shrink:0;font-size:11px;color:var(--muted)}
+.tr-play{width:18px;text-align:center;flex-shrink:0;font-size:13px;color:var(--muted)}
+.tr-title{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12px}
+.tr-dur{width:34px;text-align:right;flex-shrink:0;font-size:11px;color:var(--muted)}
+.tr-count{width:28px;text-align:right;flex-shrink:0;font-size:11px;color:var(--muted)}
+
+.t-spin{display:inline-block;width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--play);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Pagination ─────────────────────────────────────── */
+#pagination{
+  padding:16px 20px 10px;display:flex;justify-content:center;align-items:center;
+  gap:5px;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:8px;
+}
+.pg-btn{min-width:34px;height:30px;border-radius:5px;font-size:12px;background:var(--card);border:1px solid var(--border);color:var(--muted);transition:all .15s;padding:0 7px}
+.pg-btn:hover{background:var(--card-h);color:var(--text)}
+.pg-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+.pg-btn:disabled{opacity:.3;cursor:default}
+#pg-info{font-size:11px;color:var(--muted);padding:0 6px}
+
+/* ── Lade / Leer ────────────────────────────────────── */
+#loading{text-align:center;padding:60px;color:var(--muted);display:none}
+.spinner{display:inline-block;width:30px;height:30px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:10px}
+#empty{text-align:center;padding:80px 20px;color:var(--muted);display:none}
+#empty .icon{font-size:56px;margin-bottom:14px}
+
+/* ── Web Player Bar ──────────────────────────────────────────────────────
+   position:fixed = klebt am unteren Bildschirmrand, auch beim Scrollen.
+   bottom:0;left:0;right:0 = volle Breite, unten angeheftet.
+   z-index:200 = erscheint über der Album-Liste (die kein z-index hat).
+   Der #list-wrap hat padding-bottom damit der letzte Eintrag nicht
+   hinter dieser Bar verschwindet. */
+#player{
+  position:fixed;bottom:0;left:0;right:0;height:var(--player-h);
+  background:var(--bg2);border-top:2px solid var(--border);
+  display:flex;align-items:center;gap:10px;padding:0 16px;z-index:200;
+}
+#player-cover{
+  width:44px;height:44px;border-radius:5px;
+  background:var(--card);flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+  color:#4a4a80;font-size:18px;overflow:hidden;cursor:pointer;
+}
+#player-cover img{width:100%;height:100%;object-fit:cover}
+#player-info{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+#player-title{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#player-artist{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#player-progress{display:flex;align-items:center;gap:6px;margin-top:2px}
+#progress-bar{
+  flex:1;height:3px;padding:0;
+  -webkit-appearance:none;appearance:none;
+  background:var(--border);border-radius:2px;outline:none;cursor:pointer;
+}
+#progress-bar::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:10px;height:10px;border-radius:50%;
+  background:var(--play);cursor:pointer;
+}
+#progress-bar::-moz-range-thumb{
+  width:10px;height:10px;border-radius:50%;border:none;
+  background:var(--play);cursor:pointer;
+}
+#progress-time{font-size:10px;color:var(--muted);white-space:nowrap;flex-shrink:0}
+
+#play-pause-btn{
+  flex-shrink:0;background:var(--play);color:#000;font-size:16px;
+  width:36px;height:36px;border-radius:8px;border:none;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .15s;
+}
+#play-pause-btn:hover{background:var(--play-h)}
+.q-nav, #player-stop{
+  flex-shrink:0;
+  background:var(--card);border:1px solid var(--border);
+  color:var(--muted);font-size:15px;
+  width:32px;height:32px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .15s;
+}
+.q-nav:hover, #player-stop:hover{
+  background:var(--card-h);color:var(--text);border-color:var(--muted);
+}
+#player-badge{flex-shrink:0;background:var(--play);color:#000;font-size:11px;font-weight:700;padding:4px 10px;border-radius:16px}
+#vol-wrap{display:flex;align-items:center;gap:6px;flex-shrink:0}
+#vol-wrap span{font-size:16px;line-height:1;user-select:none}
+#vol-slider{
+  -webkit-appearance:none;appearance:none;
+  width:72px;height:4px;border-radius:2px;
+  background:var(--border);outline:none;cursor:pointer;padding:0;
+}
+#vol-slider::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:14px;height:14px;border-radius:50%;
+  background:var(--play);cursor:pointer;
+}
+#vol-slider::-moz-range-thumb{
+  width:14px;height:14px;border-radius:50%;border:none;
+  background:var(--play);cursor:pointer;
+}
+
+/* ── EQ-Modal ────────────────────────────────────────────────────────────
+   Zwei-Layer-Ansatz: Overlay (dunkle Fläche) + Modal (das eigentliche Fenster).
+   #eq-overlay: position:fixed;inset:0 = bedeckt den gesamten Viewport.
+   rgba(0,0,0,.6) = halbtransparentes Schwarz → Hintergrund wird abgedunkelt.
+   z-index:800 = über fast allem anderen (ausser dem Modal selbst z-index:801).
+   Klick auf das Overlay schließt das Modal (→ eqClose() in JavaScript).
+
+   #eq-modal: Schwebt über der Player-Bar (bottom = player-Höhe + Abstand).
+   right:16px = an der rechten Seite positioniert. */
+#eq-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:800;
+  display:none;
+}
+#eq-overlay.open{display:block}
+#eq-modal{
+  position:fixed;bottom:calc(var(--player-h) + 14px);right:16px;
+  width:520px;max-width:96vw;
+  background:var(--bg2);border:1px solid var(--border);border-radius:12px;
+  padding:18px 22px 20px;z-index:801;box-shadow:0 8px 40px rgba(0,0,0,.7);
+  display:none;
+}
+#eq-modal.open{display:block}
+#eq-head{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+#eq-head h3{flex:1;font-size:15px;font-weight:700;color:var(--accent-h);letter-spacing:.5px}
+#eq-preset{flex-shrink:0;width:160px}
+#eq-reset-btn{
+  flex-shrink:0;background:var(--card);border:1px solid var(--border);
+  color:var(--muted);font-size:12px;padding:5px 12px;border-radius:6px;
+  transition:all .15s;
+}
+#eq-reset-btn:hover{background:var(--card-h);color:var(--text)}
+#eq-close-btn{
+  flex-shrink:0;background:none;border:none;color:var(--muted);
+  font-size:18px;line-height:1;padding:2px 6px;border-radius:4px;
+  transition:color .15s;
+}
+#eq-close-btn:hover{color:var(--text)}
+#eq-bands{display:flex;gap:0;justify-content:space-between;align-items:flex-end}
+.eq-band{display:flex;flex-direction:column;align-items:center;gap:5px;flex:1}
+.eq-db{font-size:11px;color:var(--play);font-weight:600;min-width:30px;text-align:center;height:16px}
+.eq-slider{
+  writing-mode:vertical-lr;direction:rtl;
+  -webkit-appearance:slider-vertical;appearance:slider-vertical;
+  width:28px;height:120px;
+  accent-color:var(--accent);cursor:pointer;
+  background:transparent;
+}
+.eq-label{font-size:10px;color:var(--muted);margin-top:2px}
+#eq-btn{
+  flex-shrink:0;background:var(--card);border:1px solid var(--border);
+  color:var(--muted);font-size:12px;font-weight:700;letter-spacing:.5px;
+  width:36px;height:32px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .15s;
+}
+#eq-btn:hover,#eq-btn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* ── Toast-Benachrichtigung ───────────────────────────────────────────────
+   Kurze Einblendung (z.B. "♫ Songname", "Gestoppt") die nach 2-3 Sekunden
+   wieder verschwindet.
+   left:50% + transform:translateX(-50%) = horizontal zentriert, unabhängig
+   von der eigenen Breite. Das ist der Standard-Trick für horizontale Zentrierung
+   von absolut/fixed positionierten Elementen.
+   opacity:0 + transition:opacity = sanftes Ein/Ausblenden via CSS.
+   pointer-events:none = Toast blockiert keine Klicks darunter.
+   white-space:nowrap = kein Zeilenumbruch, Toast bleibt einzeilig.
+   #toast.playing = grüner Rand wenn ein Song startet (visuelles Feedback). */
+#toast{
+  position:fixed;bottom:calc(var(--player-h)+10px);left:50%;transform:translateX(-50%);
+  background:var(--card);border:1px solid var(--border);border-radius:7px;
+  padding:8px 18px;font-size:13px;z-index:500;
+  opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap;
+  box-shadow:0 4px 16px rgba(0,0,0,.4);
+}
+#toast.show{opacity:1}
+#toast.playing{border-color:var(--play);background:#0a1a0f}
+
+/* ── Responsive Design (Mobilgeräte) ─────────────────────────────────────
+   @media(max-width:600px) = gilt NUR wenn der Viewport schmaler als 600px ist.
+   CSS Custom Properties können hier überschrieben werden → alle Elemente
+   die var(--cover-w) etc. nutzen passen sich automatisch an.
+   Änderungen für Mobilgeräte:
+   - Kleinere Cover und Nummern (mehr Platz für den Titel)
+   - Höhere Player-Bar (mehr Platz für Finger-Touch)
+   - Kein Lautstärke-Slider (Handy hat eigene Lautstärketasten)
+   - Kein "Web"-Badge (kein Platz)
+   - Kleinere Mode-Buttons */
+@media(max-width:600px){
+  :root{--cover-w:54px;--num-w:24px;--gap:8px;--player-h:80px}
+  .info-title{font-size:13px}
+  #player-badge{display:none}
+  .info-meta{gap:6px}
+  .mode-btn{padding:4px 8px;font-size:11px}
+  #vol-wrap{display:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<header>
+  <h1>&#9835; YAMS <span class="web">Web</span>Player</h1>
+  <div id="stats-bar"></div>
+  <div class="spacer"></div>
+  <button class="btn secondary" id="toggle-search-btn">&#128269; Suche</button>
+</header>
+
+<datalist id="artist-list"></datalist>
+<div id="search-panel">
+  <div class="row">
+    <div class="sf wide">
+      <label>Artist</label>
+      <input type="text" id="f-artist" placeholder="Künstlername…" list="artist-list" autocomplete="off">
+    </div>
+    <div class="sf">
+      <label>Genre</label>
+      <button type="button" class="genre-open-btn" id="genre-btn-main">
+        Genres&#160;<span class="genre-badge" id="genre-badge-main"></span>
+      </button>
+    </div>
+    <div class="sf">
+      <label>Aufnahme-Typ</label>
+      <div class="check-group">
+        <label class="cb-item"><input type="checkbox" name="f-typ" value="S" checked> Studio</label>
+        <label class="cb-item"><input type="checkbox" name="f-typ" value="L"> Live</label>
+        <label class="cb-item"><input type="checkbox" name="f-typ" value="M"> Mixed</label>
+      </div>
+    </div>
+    <div class="sf">
+      <label>Kategorie</label>
+      <div class="check-group">
+        <label class="cb-item"><input type="checkbox" name="f-cat" value="O" checked> Original</label>
+        <label class="cb-item"><input type="checkbox" name="f-cat" value="S"> Single</label>
+        <label class="cb-item"><input type="checkbox" name="f-cat" value="C"> Compilation</label>
+        <label class="cb-item"><input type="checkbox" name="f-cat" value="M"> Mix</label>
+        <label class="cb-item"><input type="checkbox" name="f-cat" value="B"> Bootleg</label>
+      </div>
+    </div>
+    <div class="sf" style="min-width:80px">
+      <label>Jahr von</label>
+      <input type="number" id="f-year-from" placeholder="1980" min="1900" max="2099" style="width:80px">
+    </div>
+    <div class="sf" style="min-width:80px">
+      <label>Jahr bis</label>
+      <input type="number" id="f-year-to" placeholder="2025" min="1900" max="2099" style="width:80px">
+    </div>
+    <div class="sf" style="min-width:170px">
+      <label>Max. Wertung: <span id="rating-val">5.0000</span> <small style="color:var(--muted)">(1=beste)</small></label>
+      <input type="range" id="f-rating" min="1" max="5" step="0.1" value="5">
+    </div>
+    <div class="sf">
+      <label>Songs</label>
+      <div class="check-group">
+        <label class="cb-item"><input type="checkbox" id="f-only-original" checked> Nur Originalsongs</label>
+      </div>
+    </div>
+    <button class="btn" id="search-btn">Suchen</button>
+    <button class="btn secondary" id="reset-btn">Reset</button>
+  </div>
+</div>
+
+<!-- By-Year Options Panel -->
+<div id="byyear-panel">
+  <div class="sf">
+    <label>Aufnahme-Typ</label>
+    <div class="check-group">
+      <label class="cb-item"><input type="checkbox" name="by-typ" value="S" checked> Studio</label>
+      <label class="cb-item"><input type="checkbox" name="by-typ" value="L"> Live</label>
+      <label class="cb-item"><input type="checkbox" name="by-typ" value="M"> Mixed</label>
+    </div>
+  </div>
+  <div class="sf">
+    <label>Kategorie</label>
+    <div class="check-group">
+      <label class="cb-item"><input type="checkbox" name="by-cat" value="O" checked> Original</label>
+      <label class="cb-item"><input type="checkbox" name="by-cat" value="S"> Single</label>
+      <label class="cb-item"><input type="checkbox" name="by-cat" value="C"> Compilation</label>
+      <label class="cb-item"><input type="checkbox" name="by-cat" value="M"> Mix</label>
+      <label class="cb-item"><input type="checkbox" name="by-cat" value="B"> Bootleg</label>
+    </div>
+  </div>
+  <div class="sf best-only" style="min-width:80px">
+    <label>Max. je Jahr</label>
+    <input type="number" id="f-max-per-year" value="75" min="1" max="500" style="width:80px">
+  </div>
+  <div class="sf report-only" style="min-width:80px">
+    <label>Max. Alben</label>
+    <input type="number" id="f-limit" value="100" min="1" max="2000" style="width:80px">
+  </div>
+  <div class="sf">
+    <label>Genre</label>
+    <button type="button" class="genre-open-btn" id="genre-btn-by">
+      Genres&#160;<span class="genre-badge" id="genre-badge-by"></span>
+    </button>
+  </div>
+  <div class="sf" style="min-width:80px">
+    <label>Jahr von</label>
+    <input type="number" id="f-year-from-by" placeholder="1960" min="1900" max="2099" style="width:80px">
+  </div>
+  <div class="sf" style="min-width:80px">
+    <label>Jahr bis</label>
+    <input type="number" id="f-year-to-by" placeholder="2025" min="1900" max="2099" style="width:80px">
+  </div>
+  <div class="sf" style="min-width:165px">
+    <label>Max. Wertung: <span id="rating-val-by">2.25</span> <small style="color:var(--muted)">(1=beste)</small></label>
+    <input type="range" id="f-rating-by" min="1" max="5" step="0.05" value="2.25">
+  </div>
+  <div class="sf">
+    <label>Songs</label>
+    <div class="check-group">
+      <label class="cb-item"><input type="checkbox" id="f-only-original-by" checked> Nur Originalsongs</label>
+    </div>
+  </div>
+  <button class="btn" id="byyear-load-btn">Laden</button>
+</div>
+
+<!-- Jahr-Reiter -->
+<div id="year-nav">
+  <button class="yn-scroll" id="yn-left">&#9664;</button>
+  <div id="year-tabs"></div>
+  <button class="yn-scroll" id="yn-right">&#9654;</button>
+</div>
+
+<div id="toolbar">
+  <div class="mode-btns">
+    <button class="mode-btn active" data-mode="all">Alle Alben</button>
+    <button class="mode-btn" data-mode="best">&#9733; Beste je Jahr</button>
+    <button class="mode-btn" data-mode="report">&#9734; All Time Best</button>
+  </div>
+  <span id="result-count"></span>
+  <div class="spacer"></div>
+  <div id="sort-section">
+    <div class="sort-btns">
+      <button class="sort-btn active" data-sort="artist" data-dir="asc">Künstler</button>
+      <button class="sort-btn" data-sort="year">Jahr</button>
+      <button class="sort-btn" data-sort="rating">Wertung</button>
+      <button class="sort-btn" data-sort="title">Titel</button>
+      <button class="sort-btn" data-sort="played">Gespielt</button>
+    </div>
+    <select id="page-size-sel" title="Alben pro Seite">
+      <option value="24">24</option>
+      <option value="48" selected>48</option>
+      <option value="96">96</option>
+      <option value="200">200</option>
+    </select>
+  </div>
+</div>
+
+<div id="list-wrap">
+  <div id="loading"><div class="spinner"></div><br>Lade Alben…</div>
+  <div id="empty"><div class="icon">&#128191;</div><div>Keine Alben gefunden</div></div>
+  <div id="album-list"></div>
+  <div id="pagination"></div>
+</div>
+
+</div><!-- #app -->
+
+<!-- Web Player Bar -->
+<div id="player">
+  <audio id="audio-el" preload="metadata" x-webkit-airplay="allow"></audio>
+  <div id="player-cover" title="Album öffnen">&#127911;</div>
+  <div id="player-info">
+    <div id="player-title">Kein Song geladen</div>
+    <div id="player-artist">Bereit</div>
+    <div id="player-progress">
+      <input id="progress-bar" type="range" min="0" max="100" value="0" step="0.1">
+      <div id="progress-time"><span id="p-cur">0:00</span> / <span id="p-dur">0:00</span></div>
+    </div>
+  </div>
+  <button id="q-prev" class="q-nav" title="Vorheriger Titel">&#9198;</button>
+  <button id="play-pause-btn" title="Play / Pause">&#9654;</button>
+  <button id="player-stop" title="Stop">&#9632;</button>
+  <button id="q-next" class="q-nav" title="Nächster Titel">&#9197;</button>
+  <div id="vol-wrap" title="Lautstärke">
+    <span>&#128266;</span>
+    <input id="vol-slider" type="range" min="0" max="100" value="80">
+  </div>
+  <button id="eq-btn" title="Equalizer">EQ</button>
+  <div id="player-badge">&#9835; Web</div>
+</div>
+
+<!-- Equalizer Modal -->
+<div id="eq-overlay"></div>
+<div id="eq-modal">
+  <div id="eq-head">
+    <h3>🎛 Equalizer</h3>
+    <select id="eq-preset">
+      <option value="Flat">Flat</option>
+      <option value="Rock">Rock</option>
+      <option value="Pop">Pop</option>
+      <option value="Jazz">Jazz</option>
+      <option value="Klassik">Klassik</option>
+      <option value="Bass Boost">Bass Boost</option>
+      <option value="Treble">Treble Boost</option>
+      <option value="Vocal">Vocal</option>
+      <option value="Electronic">Electronic</option>
+      <option value="Hip-Hop">Hip-Hop</option>
+      <option value="Loudness">Loudness</option>
+    </select>
+    <button id="eq-reset-btn">Reset</button>
+    <button id="eq-close-btn">&#10005;</button>
+  </div>
+  <div id="eq-bands">
+    <!-- generated by JS -->
+  </div>
+</div>
+
+<!-- Genre-Popup -->
+<div id="genre-overlay"></div>
+<div id="genre-popup">
+  <div class="genre-popup-head">
+    <span id="genre-popup-title">Genre-Filter</span>
+    <button class="genre-popup-close" id="genre-popup-close">&#10005;</button>
+  </div>
+  <div id="genre-popup-main">
+    <div class="genre-row" id="genre-groups-main"><span class="genre-row-label">GRUPPE</span></div>
+    <div class="genre-row" id="genre-chips-main"><span class="genre-row-label">EINZELN</span></div>
+  </div>
+  <div id="genre-popup-by" style="display:none">
+    <div class="genre-row" id="genre-groups-by"><span class="genre-row-label">GRUPPE</span></div>
+    <div class="genre-row" id="genre-chips-by"><span class="genre-row-label">EINZELN</span></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/*
+ * ════════════════════════════════════════════════════════════════════════
+ * YAMS WebPlayer – Frontend JavaScript
+ * ════════════════════════════════════════════════════════════════════════
+ * Architektur: Vanilla JavaScript (kein Framework).
+ * Alle Logik in einer einzigen Datei, kein Build-Schritt nötig.
+ *
+ * Drei Hauptbereiche:
+ *   S  – App-State (Suchfilter, Sortierung, Paging, Cache)
+ *   Q  – Queue (Wiedergabeliste, vollständig client-seitig)
+ *   BY – By-Year Daten (gruppierte Album-Listen)
+ * ════════════════════════════════════════════════════════════════════════
+ */
+'use strict';  // Strict Mode: verhindert z.B. undeklararierte Variablen
+
+// ── App-State (S) ─────────────────────────────────────────────────────────
+// Zentrales State-Objekt. Alle Komponenten lesen/schreiben hierhin.
+// (Kein Redux/Vuex nötig – die App ist überschaubar genug für ein einfaches Objekt.)
+const S = {
+  mode:    'all',       // Aktueller Anzeigemodus: 'all' | 'best' | 'report'
+  onlyOriginal: true,   // Nur Originaltracks (CDSongOrg='T') anzeigen
+
+  // Paging & Sortierung (für "Alle Alben"-Modus)
+  page:1, pageSize:48, total:0, sortBy:'artist', sortDir:'asc',
+
+  // Suchfilter für "Alle Alben"-Modus
+  filters:{
+    artist:'',          // Künstler-Teilstring
+    yearFrom:null,      // Frühestes Erscheinungsjahr
+    yearTo:null,        // Spätestes Erscheinungsjahr
+    genres:[],          // Eingeschlossene Genres (OR-verknüpft)
+    xgenres:[],         // Ausgeschlossene Genres (NOT LIKE)
+    maxRating:5.0,      // Maximale Wertung (1=beste, 5=schlechteste)
+    typ:'S',            // Aufnahmetyp: S=Studio, L=Live, M=Mixed
+    cat:'O'             // Kategorie: O=Original, S=Single, C=Compilation...
+  },
+
+  // Filter für "Beste je Jahr" / "All Time Best"-Modus
+  byYear: {
+    typ:'S', cat:'O',
+    maxPerYear:75,      // Maximale Alben pro Jahr (ROW_NUMBER-Limit)
+    limit:100,          // Maximale Gesamtanzahl (nur Report-Modus)
+    genres:[], xgenres:[],
+    yearFrom:null, yearTo:null,
+    maxRating:2.25      // Strengerer Standard-Filter (nur sehr gute Alben)
+  },
+
+  lastAlbumId: null,    // Album-ID des zuletzt gespielten Songs (für Highlight)
+  lastSongId:  null,    // Song-ID des zuletzt gespielten Songs (für Highlight)
+  expandedId:  null,    // Album-ID des aktuell aufgeklappten Albums (max. 1)
+  tracksCache: {},      // Cache: { albumId: { tracks, album } } – verhindert wiederholte API-Aufrufe
+  globalIndex: 0,       // Startindex der aktuellen Seite (für laufende Nummern)
+};
+
+// ── Wiedergabe-Queue (Q) ──────────────────────────────────────────────────
+// Die Queue ist vollständig client-seitig (kein Server-State).
+// songs: Array von { songId, title, artist, albumId, secs }
+// pos:   Index des aktuell spielenden Songs (-1 = nichts aktiv)
+// active: true wenn Wiedergabe läuft oder pausiert ist
+const Q = { songs:[], pos:-1, active:false };
+
+// ── By-Year Daten ─────────────────────────────────────────────────────────
+// Hält die geladenen Alben für "Beste je Jahr"-Ansicht.
+// yearList: sortierte Liste aller vorhandenen Jahre z.B. [1966, 1967, ...]
+// grouped:  { 1966: [album, album, ...], 1967: [...], ... }
+// current:  Aktuell angezeigtes Jahr
+const BY = { yearList:[], grouped:{}, current:null };
+
+// ── DOM-Referenzen ────────────────────────────────────────────────────────
+// Häufig benötigte Elemente einmal cachen (document.getElementById ist teuer
+// wenn es hunderte Male aufgerufen wird).
+const audioEl = document.getElementById('audio-el');  // HTML5 <audio>-Element
+const $ = id => document.getElementById(id);          // Kurzschreibweise
+const list    = $('album-list');   // Container für Album-Zeilen
+const loading = $('loading');      // Lade-Spinner
+const empty   = $('empty');        // "Keine Alben gefunden"-Meldung
+
+// ── Hilfsfunktionen ───────────────────────────────────────────────────────
+
+/**
+ * Formatiert Sekunden als Zeitstring im Format M:SS oder H:MM:SS.
+ * Beispiel: fmt(195) → "3:15", fmt(3725) → "1:02:05"
+ * padStart(2,'0') fügt führende Null ein: 5 → "05"
+ */
+function fmt(secs) {
+  if (!secs) return '0:00';
+  const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60;
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  return `${m}:${String(s).padStart(2,'0')}`;
+}
+
+/**
+ * Formatiert Sekunden als Dauer-Kurztext für die Album-Statistiken.
+ * Beispiel: fmtDur(195) → "3m", fmtDur(3725) → "1h 2m"
+ */
+function fmtDur(secs) {
+  if (!secs) return '';
+  const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+/**
+ * HTML-Escaping: wandelt Sonderzeichen in HTML-Entitäten um.
+ * WICHTIG: Immer verwenden wenn Daten aus der DB direkt in innerHTML eingefügt
+ * werden, sonst XSS-Lücke (Cross-Site-Scripting).
+ * Beispiel: esc('<script>') → "&lt;script&gt;"
+ */
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/**
+ * Wandelt einen numerischen Wertungs-Score in Label und CSS-Klasse um.
+ * Die Wertung in der DB ist 1=beste bis 5=schlechteste (umgekehrt zu Schulnoten).
+ * Gibt { label, cls } zurück damit beides zusammen verwendet werden kann.
+ */
+function ratingNote(r) {
+  if (!r || r === 0) return { label:'', cls:'' };
+  if (r < 1.5)  return { label:'ÜBERRAGEND', cls:'note-uber'   };
+  if (r < 1.7)  return { label:'SEHR GUT',   cls:'note-sehrgut'};
+  if (r < 2.1)  return { label:'GUT',         cls:'note-gut'   };
+  if (r < 2.5)  return { label:'GEHT SO',     cls:'note-gehtso'};
+  if (r < 2.75) return { label:'MÄSSIG',      cls:'note-maessig'};
+  return               { label:'SCHLECHT',    cls:'note-schlecht'};
+}
+
+/**
+ * Zeigt eine kurze Benachrichtigung am unteren Bildschirmrand.
+ * Verschwindet nach `ms` Millisekunden automatisch.
+ * _tid: Timer-ID wird am Element gespeichert damit bei schnell
+ * aufeinanderfolgenden Toasts der vorherige Timer abgebrochen wird.
+ */
+function showToast(msg, ms=2200, playing=false) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className   = 'show' + (playing ? ' playing' : '');
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => t.className='', ms);
+}
+
+/**
+ * Führt einen API-Aufruf durch und gibt die JSON-Antwort zurück.
+ * Wirft einen Fehler wenn der HTTP-Status nicht 2xx ist.
+ * async/await macht asynchronen Code lesbar wie synchronen Code.
+ */
+async function api(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ── Initialisierung ───────────────────────────────────────────────────────
+/**
+ * Einstiegspunkt der App. Wird am Ende der Datei aufgerufen (init()).
+ *
+ * Promise.all([...]) führt ALLE vier API-Aufrufe GLEICHZEITIG aus (parallel).
+ * Ohne Promise.all würden sie nacheinander laufen: ~4x langsamer.
+ * await wartet bis ALLE abgeschlossen sind, dann erst geht es weiter.
+ *
+ * Reihenfolge danach:
+ * 1. Genres laden (für den Genre-Picker)
+ * 2. Jahres-Range laden (für Platzhalter in den Jahr-Inputs)
+ * 3. Statistiken laden (Header-Zeile)
+ * 4. PlayStatus laden (farbige Punkte bei Alben)
+ * → Dann: Album-Liste laden, Event-Listener binden, Audio-Events binden
+ */
+async function init() {
+  await Promise.all([loadGenres(), loadYears(), loadStats(), loadPlayStatus()]);
+  loadAlbums();
+  bindEvents();
+  bindAudioEvents();
+  // Lautstärke aus HTML-Slider-Startwert setzen (80% Standard)
+  audioEl.volume = parseInt($('vol-slider').value) / 100;
+}
+
+async function loadStats() {
+  try {
+    const d = await api('/api/stats');
+    $('stats-bar').textContent =
+      `${d.albums.toLocaleString('de')} Alben · ${d.songs.toLocaleString('de')} Songs · ${d.artists.toLocaleString('de')} Künstler`;
+  } catch {}
+}
+
+// ── Play-Status ────────────────────────────────────────────────────────────
+/**
+ * PS = Lookup-Tabelle { albumId: { n1Count, n2Count, ... n4Played, ... } }
+ * Wird beim Start einmal geladen und dann nur clientseitig aktualisiert.
+ */
+let PS = {};
+
+/**
+ * Lädt den Spielstatus aller Alben vom Server.
+ * try/catch: Fehler werden geloggt aber nicht dem Benutzer angezeigt –
+ * die App funktioniert auch ohne PlayStatus, nur die farbigen Punkte fehlen.
+ */
+async function loadPlayStatus() {
+  try {
+    const data = await api('/api/albums/playstatus');
+    // forEach wandelt das Array in ein Objekt um für O(1)-Zugriff per albumId
+    data.forEach(d => { PS[d.albumId] = d; });
+  } catch(e) { console.warn('PlayStatus konnte nicht geladen werden:', e); }
+}
+
+/**
+ * Berechnet den CSS-Hintergrund-Style für den farbigen Status-Punkt (ps-dot)
+ * der bei jedem Album angezeigt wird.
+ *
+ * Farb-Logik (Priorität von hoch nach niedrig):
+ *   Rot:        Note-1-Songs vorhanden aber noch nie gespielt → höchste Prio
+ *   Rot/lila:   Note-1-Songs teils gespielt (Streifen = gemischt)
+ *   Orange:     Note-2-Songs ungespielt
+ *   Gelb:       Note-3-Songs ungespielt
+ *   Hellgrün:   Note-4/5-Songs ungespielt
+ *   Grün:       Alles gespielt (oder kein Eintrag = kein Spielstatus)
+ *
+ * repeating-linear-gradient = CSS-Streifen für "teils gespielt" Status.
+ * Die innere stripe()-Funktion ist lokal und nur hier sichtbar (Closure).
+ */
+function psStyle(albumId) {
+  const d = PS[albumId];
+  if (!d) return 'background:green';
+  const nothingPlayed = d.n1Played === 0 && d.n2Played === 0 && d.n3Played === 0 && d.n4Played === 0;
+  if (nothingPlayed)                    return 'background:red';
+  if (d.n1Count > 0 && d.n1Played===0) return 'background:red';
+  if (d.n1Count > 0 && d.n1Played > 0) return stripe('red',       'palevioletred');
+  if (d.n2Count > 0 && d.n2Played===0) return 'background:darkorange';
+  if (d.n2Count > 0 && d.n2Played > 0) return stripe('darkorange','palegoldenrod');
+  if (d.n3Count > 0 && d.n3Played===0) return 'background:gold';
+  if (d.n3Count > 0 && d.n3Played > 0) return stripe('gold',      'lightseagreen');
+  if (d.n4Count > 0 && d.n4Played===0) return 'background:limegreen';
+  if (d.n4Count > 0 && d.n4Played > 0) return stripe('limegreen', 'green');
+  return 'background:green';
+  // Hilfsfunktion: CSS-Streifen aus zwei Farben (45°, 3px Breite)
+  function stripe(a, b) {
+    return `background:repeating-linear-gradient(45deg,${a},${a} 3px,${b} 3px,${b} 6px)`;
+  }
+}
+function psTitle(albumId) {
+  const d = PS[albumId];
+  if (!d) return 'Kein Spielstatus';
+  if (d.n1Played === 0 && d.n2Played === 0 && d.n3Played === 0 && d.n4Played === 0)
+    return 'Noch nie gespielt';
+  const parts = [];
+  if (d.n1Count > 0) parts.push(`Note 1: ${d.n1Played} gespielt, ${d.n1Count} offen`);
+  if (d.n2Count > 0) parts.push(`Note 2: ${d.n2Played} gespielt, ${d.n2Count} offen`);
+  if (d.n3Count > 0) parts.push(`Note 3: ${d.n3Played} gespielt, ${d.n3Count} offen`);
+  if (d.n4Count > 0) parts.push(`Note 4/5: ${d.n4Played} gespielt, ${d.n4Count} offen`);
+  return parts.join(' | ') || 'Alle gespielt';
+}
+
+// ── Genre-Picker ─────────────────────────────────────────────────────────────
+let G_GROUPS = [];
+function buildGenrePicker(groupsEl, chipsEl, getGenres, setGenres, getXGenres, setXGenres) {
+  G_GROUPS.forEach(({ group, genres }) => {
+    const btn = document.createElement('button');
+    btn.className   = 'g-chip grp';
+    btn.textContent = group;
+    btn.dataset.group = group;
+    btn.title = genres.join(', ');
+    btn.addEventListener('click', () => {
+      const sel = getGenres(), exc = getXGenres();
+      const inCnt  = genres.filter(g => sel.includes(g)).length;
+      const exCnt  = genres.filter(g => exc.includes(g)).length;
+      if (inCnt === genres.length) {
+        setGenres(sel.filter(g => !genres.includes(g)));
+        setXGenres([...new Set([...exc, ...genres])]);
+      } else if (exCnt === genres.length) {
+        setXGenres(exc.filter(g => !genres.includes(g)));
+      } else {
+        setXGenres(exc.filter(g => !genres.includes(g)));
+        setGenres([...new Set([...sel.filter(g => !genres.includes(g)), ...genres])]);
+      }
+      refreshGenrePicker(groupsEl, chipsEl, getGenres, getXGenres);
+    });
+    groupsEl.appendChild(btn);
+  });
+  const allGenres = [...new Set(G_GROUPS.flatMap(g => g.genres))].sort();
+  allGenres.forEach(g => {
+    const btn = document.createElement('button');
+    btn.className   = 'g-chip';
+    btn.textContent = g;
+    btn.dataset.genre = g;
+    btn.addEventListener('click', () => {
+      const sel = getGenres(), exc = getXGenres();
+      if (sel.includes(g)) {
+        setGenres(sel.filter(x => x !== g));
+        setXGenres([...exc, g]);
+      } else if (exc.includes(g)) {
+        setXGenres(exc.filter(x => x !== g));
+      } else {
+        setGenres([...sel, g]);
+      }
+      refreshGenrePicker(groupsEl, chipsEl, getGenres, getXGenres);
+    });
+    chipsEl.appendChild(btn);
+  });
+}
+function refreshGenrePicker(groupsEl, chipsEl, getGenres, getXGenres) {
+  const sel = getGenres();
+  const exc = getXGenres ? getXGenres() : [];
+  groupsEl.querySelectorAll('.g-chip.grp').forEach(btn => {
+    const genres = G_GROUPS.find(g => g.group === btn.dataset.group)?.genres ?? [];
+    const inCnt  = genres.filter(g => sel.includes(g)).length;
+    const exCnt  = genres.filter(g => exc.includes(g)).length;
+    btn.classList.toggle('active',   inCnt === genres.length && genres.length > 0 && exCnt === 0);
+    btn.classList.toggle('excluded', exCnt === genres.length && genres.length > 0 && inCnt === 0);
+    btn.classList.toggle('partial',  inCnt > 0 && inCnt < genres.length && exCnt === 0);
+  });
+  chipsEl.querySelectorAll('.g-chip[data-genre]').forEach(btn => {
+    btn.classList.toggle('active',   sel.includes(btn.dataset.genre));
+    btn.classList.toggle('excluded', exc.includes(btn.dataset.genre));
+  });
+}
+async function loadGenres() {
+  try {
+    G_GROUPS = await api('/api/genres/groups');
+    const operaGroup = G_GROUPS.find(g => g.group === 'Classical - Opera');
+    if (operaGroup && operaGroup.genres.length) {
+      const defaultXGenres = [...operaGroup.genres];
+      if (!S.filters.xgenres.length)  S.filters.xgenres  = [...defaultXGenres];
+      if (!S.byYear.xgenres.length)   S.byYear.xgenres   = [...defaultXGenres];
+    }
+    buildGenrePicker($('genre-groups-main'), $('genre-chips-main'),
+      () => S.filters.genres,
+      v  => { S.filters.genres  = v; updateGenreBadge('main'); },
+      () => S.filters.xgenres,
+      v  => { S.filters.xgenres = v; updateGenreBadge('main'); });
+    buildGenrePicker($('genre-groups-by'), $('genre-chips-by'),
+      () => S.byYear.genres,
+      v  => { S.byYear.genres   = v; updateGenreBadge('by'); },
+      () => S.byYear.xgenres,
+      v  => { S.byYear.xgenres  = v; updateGenreBadge('by'); });
+    updateGenreBadge('main');
+    updateGenreBadge('by');
+  } catch(e) { console.warn('Genre-Gruppen konnten nicht geladen werden:', e); }
+}
+function updateGenreBadge(target) {
+  const badge = $(`genre-badge-${target}`);
+  const btn   = $(`genre-btn-${target}`);
+  if (!badge || !btn) return;
+  const f   = target === 'main' ? S.filters : S.byYear;
+  const inc = f.genres.length, exc = f.xgenres.length;
+  const active = inc > 0 || exc > 0;
+  btn.classList.toggle('has-sel', active);
+  if (!active) { badge.textContent = ''; badge.className = 'genre-badge'; return; }
+  let txt = '';
+  if (inc > 0) txt += `+${inc}`;
+  if (exc > 0) txt += (txt ? ' ' : '') + `−${exc}`;
+  badge.textContent = txt;
+  badge.className   = 'genre-badge on' + (exc > 0 && inc === 0 ? ' excl' : '');
+}
+function openGenrePopup(target, anchorEl) {
+  $('genre-popup-main').style.display = target === 'main' ? '' : 'none';
+  $('genre-popup-by').style.display   = target === 'by'   ? '' : 'none';
+  if (target === 'main')
+    refreshGenrePicker($('genre-groups-main'), $('genre-chips-main'), () => S.filters.genres, () => S.filters.xgenres);
+  else
+    refreshGenrePicker($('genre-groups-by'),   $('genre-chips-by'),   () => S.byYear.genres,  () => S.byYear.xgenres);
+  const popup = $('genre-popup');
+  popup.classList.add('open');
+  $('genre-overlay').classList.add('open');
+  const r = anchorEl.getBoundingClientRect();
+  popup.style.top  = (r.bottom + 6) + 'px';
+  popup.style.left = r.left + 'px';
+  requestAnimationFrame(() => {
+    const pr = popup.getBoundingClientRect();
+    if (pr.right > window.innerWidth - 10)
+      popup.style.left = Math.max(10, window.innerWidth - pr.width - 10) + 'px';
+  });
+}
+function closeGenrePopup() {
+  $('genre-popup').classList.remove('open');
+  $('genre-overlay').classList.remove('open');
+}
+
+async function loadYears() {
+  try {
+    const {min, max} = await api('/api/years');
+    $('f-year-from').placeholder    = `ab ${min}`;
+    $('f-year-to').placeholder      = `bis ${max}`;
+    $('f-year-from-by').placeholder = `ab ${min}`;
+    $('f-year-to-by').placeholder   = `bis ${max}`;
+  } catch {}
+}
+
+// ── Modus wechseln ─────────────────────────────────────────────────────────
+function switchMode(mode) {
+  S.mode = mode;
+  document.querySelectorAll('.mode-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === mode));
+  const sp  = $('search-panel');
+  const byp = $('byyear-panel');
+  const ss  = $('sort-section');
+  const yn  = $('year-nav');
+  if (mode === 'all') {
+    sp.style.display  = '';
+    ss.style.display  = '';
+    byp.classList.remove('visible', 'report-mode', 'best-mode');
+    yn.classList.remove('visible');
+  } else {
+    sp.style.display  = 'none';
+    ss.style.display  = 'none';
+    byp.classList.add('visible');
+    byp.classList.toggle('report-mode', mode === 'report');
+    byp.classList.toggle('best-mode',   mode === 'best');
+    yn.classList.remove('visible');
+  }
+  if (mode === 'all') loadAlbums();
+  else loadByYear();
+}
+
+// ── Alben laden (Alle-Modus) ────────────────────────────────────────────────
+async function loadAlbums() {
+  loading.style.display = 'block'; empty.style.display = 'none'; list.innerHTML = '';
+  S.expandedId = null;
+  const p = new URLSearchParams({ page: S.page, pageSize: S.pageSize, sortBy: S.sortBy, sortDir: S.sortDir });
+  if (S.filters.artist)               p.set('artist',    S.filters.artist);
+  if (S.filters.yearFrom)             p.set('yearFrom',  S.filters.yearFrom);
+  if (S.filters.yearTo)               p.set('yearTo',    S.filters.yearTo);
+  if (S.filters.genres.length)        p.set('genres',    S.filters.genres.join(','));
+  if (S.filters.xgenres.length)       p.set('xgenres',   S.filters.xgenres.join(','));
+  if (S.filters.maxRating < 5.0)      p.set('maxRating', S.filters.maxRating);
+  if (S.filters.typ)             p.set('typ',       S.filters.typ);
+  if (S.filters.cat)             p.set('cat',       S.filters.cat);
+  try {
+    const data = await api('/api/albums?' + p);
+    S.total = data.total;
+    loading.style.display = 'none';
+    $('result-count').textContent = `${data.total.toLocaleString('de')} Alben`;
+    if (!data.albums.length) { empty.style.display = 'block'; renderPagination(); return; }
+    S.globalIndex = (S.page - 1) * S.pageSize;
+    data.albums.forEach((a, i) => {
+      const idx = S.globalIndex + i + 1;
+      list.appendChild(buildRow(a, idx));
+      list.appendChild(buildTracksContainer(a.id));
+    });
+    renderPagination();
+  } catch(e) {
+    loading.style.display = 'none';
+    showToast('Fehler: ' + e.message, 4000);
+  }
+}
+
+// ── Alben laden (Je-Jahr-Modus) ────────────────────────────────────────────
+async function loadByYear() {
+  loading.style.display = 'block'; empty.style.display = 'none'; list.innerHTML = '';
+  $('pagination').innerHTML = '';
+  $('year-nav').classList.remove('visible');
+  S.expandedId  = null;
+  clearTracksCache();
+  BY.yearList = []; BY.grouped = {}; BY.current = null;
+  const p = new URLSearchParams({ mode: S.mode });
+  const f = S.byYear;
+  if (f.typ)             p.set('typ',        f.typ);
+  if (f.cat)             p.set('cat',        f.cat);
+  if (f.maxRating < 5.0) p.set('maxRating',  f.maxRating);
+  if (f.genres.length)   p.set('genres',     f.genres.join(','));
+  if (f.xgenres.length)  p.set('xgenres',    f.xgenres.join(','));
+  if (f.yearFrom)        p.set('yearFrom',   f.yearFrom);
+  if (f.yearTo)          p.set('yearTo',     f.yearTo);
+  if (S.mode === 'best'   && f.maxPerYear > 0) p.set('maxPerYear', f.maxPerYear);
+  if (S.mode === 'report' && f.limit > 0)      p.set('limit',      f.limit);
+  try {
+    const data = await api('/api/albums/by-year?' + p);
+    loading.style.display = 'none';
+    $('result-count').textContent = `${data.total.toLocaleString('de')} Alben`;
+    if (!data.albums.length) { empty.style.display = 'block'; return; }
+    data.albums.forEach(a => {
+      const y = a.year > 0 ? a.year : 0;
+      if (!BY.grouped[y]) { BY.grouped[y] = []; BY.yearList.push(y); }
+      BY.grouped[y].push(a);
+    });
+    BY.yearList.sort((a, b) => a - b);
+    renderYearNav(BY.yearList);
+    showYear(BY.yearList[0]);
+  } catch(e) {
+    loading.style.display = 'none';
+    showToast('Fehler: ' + e.message, 4000);
+  }
+}
+
+function renderYearNav(years) {
+  const tabs = $('year-tabs');
+  tabs.innerHTML = years.map(y =>
+    `<button class="yn-tab" data-year="${y}">${y > 0 ? y : '–'}</button>`
+  ).join('');
+  tabs.querySelectorAll('.yn-tab').forEach(btn => {
+    btn.addEventListener('click', () => showYear(parseInt(btn.dataset.year) || 0));
+  });
+  $('yn-left').onclick  = () => tabs.scrollBy({ left:-200, behavior:'smooth' });
+  $('yn-right').onclick = () => tabs.scrollBy({ left: 200, behavior:'smooth' });
+  $('year-nav').classList.add('visible');
+}
+
+function showYear(year) {
+  BY.current = year;
+  list.innerHTML = '';
+  S.expandedId = null;
+  document.querySelectorAll('.yn-tab').forEach(btn => {
+    const y = parseInt(btn.dataset.year) || 0;
+    const active = (y === year);
+    btn.classList.toggle('active', active);
+    if (active) btn.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'nearest' });
+  });
+  const albums = BY.grouped[year] || [];
+  if (!albums.length) { empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  albums.forEach((a, i) => {
+    list.appendChild(buildRow(a, i + 1));
+    list.appendChild(buildTracksContainer(a.id));
+  });
+  $('list-wrap').scrollTo({ top:0, behavior:'smooth' });
+}
+
+// ── Album-Zeile bauen ──────────────────────────────────────────────────────
+function buildRow(a, idx) {
+  const row = document.createElement('div');
+  row.className  = 'album-row' + (a.id === S.lastAlbumId ? ' web-active' : '');
+  row.dataset.id = a.id;
+  const {label, cls} = ratingNote(a.rating);
+  const ratingHtml   = label ? `<span class="note ${cls}">&#9733; ${label}</span>` : '';
+  const amgHtml      = a.amg > 0 ? `<span class="amg">AMG ${a.amg.toFixed(1)}</span>` : '';
+  const parts = [];
+  if (a.totalSec)   parts.push(fmtDur(a.totalSec));
+  if (a.year > 0)   parts.push(a.year);
+  if (a.trackCount) parts.push(`${a.trackCount} Tracks`);
+  if (a.played)     parts.push(`${a.played}× gehört`);
+  const statsHtml = parts.map(p => `<span>${esc(String(p))}</span>`).join('');
+  row.innerHTML = `
+    <div class="row-num">${idx}.</div>
+    <div class="row-cover">
+      <img src="/api/cover/${a.id}" loading="lazy"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" alt="">
+      <div class="no-cover" style="display:none">&#127911;</div>
+    </div>
+    <div class="row-info">
+      <div class="info-artist">${esc(a.artist)}</div>
+      <div class="info-title" title="${esc(a.title)}">${esc(a.title)}</div>
+      <div class="info-meta">
+        ${a.genre ? `<span class="genre-txt">${esc(a.genre)}</span>` : ''}
+        ${ratingHtml}
+        ${amgHtml}
+      </div>
+      <div class="info-stats">
+        <span class="ps-dot" style="${psStyle(a.id)}" title="${psTitle(a.id)}"></span>
+        ${statsHtml}
+      </div>
+    </div>
+    <div class="row-chevron">&#9654;</div>`;
+  row.addEventListener('click', () => toggleTracks(a.id, row));
+  return row;
+}
+
+function buildTracksContainer(albumId) {
+  const div = document.createElement('div');
+  div.className = 'album-tracks';
+  div.id = `tracks-${albumId}`;
+  div.innerHTML = `<div style="padding:12px 0;text-align:center;color:var(--muted);font-size:12px">Lade Tracks…</div>`;
+  return div;
+}
+
+// ── Tracks auf-/zuklappen ──────────────────────────────────────────────────
+async function toggleTracks(albumId, rowEl) {
+  const tc     = $(`tracks-${albumId}`);
+  const isOpen = tc.classList.contains('open');
+  if (S.expandedId && S.expandedId !== albumId) {
+    const prevTc  = $(`tracks-${S.expandedId}`);
+    const prevRow = list.querySelector(`.album-row[data-id="${S.expandedId}"]`);
+    if (prevTc)  prevTc.classList.remove('open');
+    if (prevRow) prevRow.classList.remove('expanded');
+    S.expandedId = null;
+  }
+  if (isOpen) {
+    tc.classList.remove('open');
+    rowEl.classList.remove('expanded');
+    S.expandedId = null;
+    return;
+  }
+  rowEl.classList.add('expanded');
+  tc.classList.add('open');
+  S.expandedId = albumId;
+  tc.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  if (!S.tracksCache[albumId]) {
+    try {
+      const d = await api(`/api/albums/${albumId}`);
+      S.tracksCache[albumId] = { tracks: d.tracks, album: d.album };
+    } catch(e) {
+      tc.innerHTML = `<div style="padding:10px;color:var(--danger)">Fehler: ${esc(e.message)}</div>`;
+      return;
+    }
+  }
+  renderTracks(albumId);
+}
+
+function renderTracks(albumId) {
+  const tc = $(`tracks-${albumId}`);
+  const { tracks, album } = S.tracksCache[albumId];
+  if (!tracks.length) {
+    tc.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:12px">Keine Tracks</div>';
+    return;
+  }
+  const visibleTracks = S.onlyOriginal ? tracks.filter(t => t.org === 'T') : tracks;
+
+  let html = `<div class="tracks-header">
+    <span class="tc">${visibleTracks.length} Tracks</span>
+    ${visibleTracks.length > 0
+      ? `<button class="btn-play-album" data-album="${albumId}">&#9654; Album abspielen</button>`
+      : ''}
+  </div>`;
+
+  visibleTracks.forEach((t, i) => {
+    const noteClass = t.rating === 1 ? 'note-1' : t.rating === 2 ? 'note-2' : 'note-other';
+    const playing   = t.id === S.lastSongId;
+    const cls = ['track-row', noteClass, playing ? 'playing' : ''].filter(Boolean).join(' ');
+    html += `<div class="${cls}" data-song="${t.id}" data-album="${albumId}">
+      <div class="tr-num">${t.trackNum || (i+1)}</div>
+      <div class="tr-play">${playing ? '&#9835;' : '&#9654;'}</div>
+      <div class="tr-title">${esc(t.title)}</div>
+      <div class="tr-dur">${fmt(t.secs)}</div>
+      <div class="tr-count">${t.count > 0 ? t.count : ''}</div>
+    </div>`;
+  });
+
+  tc.innerHTML = html;
+
+  // "Album abspielen"-Button → erster Song
+  const playAllBtn = tc.querySelector('.btn-play-album');
+  if (playAllBtn) {
+    playAllBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      const first = visibleTracks[0];
+      if (first) {
+        const el = tc.querySelector(`[data-song="${first.id}"]`);
+        dispatchToPlayer(first.id, first.title, first.songArtist || album.artist, albumId, el);
+      }
+    });
+  }
+
+  // Track-Klick
+  tc.querySelectorAll('.track-row').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      const songId = parseInt(el.dataset.song);
+      const aId    = parseInt(el.dataset.album);
+      const { tracks: tks, album: alb } = S.tracksCache[aId];
+      const t = tks.find(x => x.id === songId);
+      if (t) dispatchToPlayer(t.id, t.title, t.songArtist || alb.artist, aId, el);
+    });
+  });
+}
+
+// ── Queue-Verwaltung ──────────────────────────────────────────────────────
+/**
+ * Leert die Queue komplett und setzt alle Felder zurück.
+ * Wird aufgerufen beim Stop-Button und wenn ein neuer Song angeklickt wird.
+ */
+function queueClear() {
+  Q.songs  = [];
+  Q.pos    = -1;
+  Q.active = false;
+}
+
+/**
+ * Baut eine Queue aus einem Album aufgebaut ab einem bestimmten Song.
+ * Lädt Album-Daten aus dem Cache oder vom Server.
+ *
+ * @param albumId    ID des Albums
+ * @param startSongId  Song ab dem die Queue starten soll (undefined = erster Song)
+ * @returns Array von Queue-Einträgen { songId, title, artist, albumId, secs }
+ *
+ * slice(startIdx): Gibt alle Songs ab dem angeklickten zurück,
+ * damit beim Klick auf Song 3 von 10 die Songs 3-10 in die Queue kommen.
+ * t.songArtist || album.artist: Bei Features hat der Song eigenen Künstler,
+ * sonst wird der Album-Künstler verwendet.
+ */
+async function queueBuildFrom(albumId, startSongId) {
+  if (!S.tracksCache[albumId]) {
+    const d = await api(`/api/albums/${albumId}`);
+    S.tracksCache[albumId] = { tracks: d.tracks, album: d.album };
+  }
+  const { tracks, album } = S.tracksCache[albumId];
+  // Nur Originaltracks wenn S.onlyOriginal=true (CDSongOrg='T')
+  const playable = tracks.filter(t => !S.onlyOriginal || t.org === 'T');
+  const startIdx = startSongId
+    ? Math.max(0, playable.findIndex(t => t.id === startSongId))
+    : 0;
+  return playable.slice(startIdx).map(t => ({
+    songId:  t.id,
+    title:   t.title,
+    artist:  t.songArtist || album.artist,
+    albumId,
+    secs:    t.secs || 0,
+  }));
+}
+
+/**
+ * Erweitert Q.songs um das nächste sichtbare Album in der Liste.
+ * Wird aufgerufen wenn der letzte Song eines Albums endet (auto-advance).
+ * Sucht das nächste .album-row Element im DOM → Reihenfolge entspricht
+ * der aktuellen Sortierung/Filterung.
+ * @returns true wenn erfolgreich erweitert, false wenn kein nächstes Album.
+ */
+async function queueExtend() {
+  const rows = [...list.querySelectorAll('.album-row')];
+  const lastId = Q.songs[Q.songs.length - 1]?.albumId;
+  if (!lastId) return false;
+  const idx = rows.findIndex(r => parseInt(r.dataset.id) === lastId);
+  if (idx < 0 || idx >= rows.length - 1) return false;
+  const nextId = parseInt(rows[idx + 1].dataset.id);
+  try {
+    const more = await queueBuildFrom(nextId);
+    if (!more.length) return false;
+    Q.songs.push(...more);  // push(...arr) fügt alle Elemente einzeln hinzu
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Fügt das vorherige Album VOR Q.songs ein (für "Zurück"-Navigation).
+ * Q.pos wird um die Länge des eingefügten Albums erhöht,
+ * damit Q.songs[Q.pos] weiterhin auf den aktuellen Song zeigt.
+ * unshift(...prev) = Einfügen am Anfang des Arrays (wie push am Ende).
+ */
+async function queuePrepend() {
+  const rows = [...list.querySelectorAll('.album-row')];
+  const firstId = Q.songs[0]?.albumId;
+  if (!firstId) return false;
+  const idx = rows.findIndex(r => parseInt(r.dataset.id) === firstId);
+  if (idx <= 0) return false;
+  const prevId = parseInt(rows[idx - 1].dataset.id);
+  try {
+    const prev = await queueBuildFrom(prevId);
+    if (!prev.length) return false;
+    Q.songs.unshift(...prev);
+    Q.pos += prev.length;  // Position anpassen da Songs VOR pos eingefügt wurden
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Navigiert in der Queue um delta Schritte (+1 = nächster, -1 = vorheriger).
+ * Lädt bei Bedarf automatisch das angrenzende Album nach.
+ * Math.max/Math.min klemmt den Wert auf den gültigen Bereich [0, songs.length-1].
+ */
+async function queueNav(delta) {
+  if (!Q.active && Q.songs.length === 0) return;
+  const newPos = Q.pos + delta;
+  if (newPos < 0) {
+    const ok = await queuePrepend();
+    if (!ok) { showToast('Kein vorheriges Album', 1500); return; }
+  } else if (newPos >= Q.songs.length) {
+    const ok = await queueExtend();
+    if (!ok) { showToast('Kein nächstes Album', 1500); return; }
+  }
+  Q.pos = Math.max(0, Math.min(Q.pos + delta, Q.songs.length - 1));
+  playCurrent();
+}
+
+/**
+ * Startet die Wiedergabe des Songs an Position Q.pos.
+ * audioEl.src setzen → Browser lädt sofort den Stream vom Server.
+ * .play() gibt ein Promise zurück; .catch(()=>{}) unterdrückt
+ * "Autoplay blocked"-Fehler die auf manchen Browsern auftreten.
+ */
+/**
+ * Stellt sicher dass der AudioContext läuft bevor play() aufgerufen wird.
+ * Nötig weil Chrome den Context nach dem EQ-Setup manchmal suspendiert.
+ * Gibt ein Promise zurück das resolved sobald der Context 'running' ist.
+ * Falls kein EQ aktiv → sofort resolved (leeres Promise).
+ */
+async function ensureAudioCtx() {
+  if (eqCtx && eqCtx.state !== 'running') {
+    await eqCtx.resume();
+  }
+}
+
+async function playCurrent() {
+  const song = Q.songs[Q.pos];
+  if (!song) return;
+  await ensureAudioCtx();  // EQ-Context aufwecken falls nötig
+  audioEl.src = `/api/stream/${song.songId}`;
+  audioEl.volume = parseInt($('vol-slider').value) / 100;
+  audioEl.play().catch(() => {});
+  applyPlayHighlight(song.songId, song.albumId);
+  updatePlayerBar(song.title, song.artist, song.albumId, Q.pos, Q.songs.length);
+  showToast(`\u266b ${song.title}`, 2500, true);  // \u266b = ♫
+}
+
+// ── Web Player Dispatch ────────────────────────────────────────────────────
+async function dispatchToPlayer(songId, title, artist, albumId, trackEl) {
+  queueClear();
+  Q.active = true;
+  Q.pos    = 0;
+  try {
+    Q.songs = await queueBuildFrom(albumId, songId);
+  } catch {
+    Q.songs = [{ songId, title, artist, albumId, secs: 0 }];
+  }
+
+  const playBtn = trackEl?.querySelector('.tr-play');
+  if (playBtn) playBtn.innerHTML = '<span class="t-spin"></span>';
+
+  audioEl.src = `/api/stream/${songId}`;
+  audioEl.volume = parseInt($('vol-slider').value) / 100;
+
+  try {
+    await ensureAudioCtx();  // EQ-Context aufwecken falls nötig
+    await audioEl.play();
+    applyPlayHighlight(songId, albumId);
+    if (playBtn) playBtn.innerHTML = '&#9835;';
+    updatePlayerBar(title, artist, albumId, Q.pos, Q.songs.length);
+    showToast(`\u266b ${title}`, 2500, true);
+    return true;
+  } catch(e) {
+    showToast('Wiedergabefehler: ' + e.message, 5000);
+    if (playBtn) playBtn.innerHTML = '&#9654;';
+    return false;
+  }
+}
+
+// ── Audio-Events ──────────────────────────────────────────────────────────
+/**
+ * Leert den Tracks-Cache wenn der Benutzer die Suche/Sortierung ändert.
+ * Das Album des aktuell spielenden Songs wird NICHT gelöscht, damit
+ * die Wiedergabe-Highlight-Anzeige korrekt bleibt.
+ * ?. (Optional Chaining): Q.songs[Q.pos]?.albumId gibt undefined zurück
+ * statt einen Fehler wenn Q.songs[Q.pos] nicht existiert.
+ */
+function clearTracksCache() {
+  const keepId = Q.active ? Q.songs[Q.pos]?.albumId : null;
+  const kept   = keepId ? S.tracksCache[keepId] : null;
+  S.tracksCache = {};
+  if (kept) S.tracksCache[keepId] = kept;
+}
+
+/**
+ * Bindet alle HTML5-Audio-Events an das <audio>-Element.
+ * Wird einmalig in init() aufgerufen.
+ *
+ * HTML5 Audio Events:
+ *   ended         = Song ist vollständig zu Ende gespielt
+ *   error         = Datei nicht gefunden / Stream-Fehler
+ *   timeupdate    = currentTime hat sich geändert (~4x pro Sekunde)
+ *   loadedmetadata = Datei-Header geladen, Dauer bekannt
+ *   play/pause    = Wiedergabe gestartet/pausiert
+ */
+function bindAudioEvents() {
+
+  // Song zu Ende → Counter in DB, Cache und DOM erhöhen, nächsten spielen
+  audioEl.addEventListener('ended', async () => {
+    if (!Q.active || Q.songs.length === 0) return;
+    const finishedSong = Q.songs[Q.pos];
+    const finishedId   = finishedSong?.songId;
+    const finishedAlbum = finishedSong?.albumId;
+    if (finishedId) {
+      fetch(`/api/songs/${finishedId}/played`, { method: 'POST' });
+      // Cache direkt über albumId nachschlagen (funktioniert in allen Modi)
+      const cache = S.tracksCache[finishedAlbum];
+      if (cache) {
+        const t = cache.tracks.find(x => x.id === finishedId);
+        if (t) {
+          t.count = (t.count || 0) + 1;
+          const el = document.querySelector(`.track-row[data-song="${finishedId}"] .tr-count`);
+          if (el) el.textContent = t.count;
+        }
+      }
+    }
+    Q.pos++;
+    if (Q.pos >= Q.songs.length) {
+      const extended = await queueExtend();
+      if (!extended) {
+        queueClear();
+        $('player-artist').textContent = 'Queue beendet';
+        $('play-pause-btn').innerHTML  = '&#9654;';
+        return;
+      }
+    }
+    playCurrent();
+  });
+
+  // Datei-Fehler (404 = Datei fehlt) → überspringen
+  audioEl.addEventListener('error', async () => {
+    if (!Q.active || Q.songs.length === 0) return;
+    const cur = Q.songs[Q.pos];
+    showToast(`Datei nicht gefunden – überspringe${cur ? ': ' + cur.title : ''}`, 3000);
+    Q.pos++;
+    if (Q.pos < Q.songs.length) playCurrent();
+    else {
+      queueClear();
+      $('player-artist').textContent = 'Queue beendet';
+    }
+  });
+
+  // Fortschrittsbalken aktualisieren
+  audioEl.addEventListener('timeupdate', () => {
+    if (!audioEl.duration || isNaN(audioEl.duration)) return;
+    const pct = (audioEl.currentTime / audioEl.duration) * 100;
+    $('progress-bar').value = pct;
+    $('p-cur').textContent  = fmt(Math.floor(audioEl.currentTime));
+    $('p-dur').textContent  = fmt(Math.floor(audioEl.duration));
+  });
+
+  audioEl.addEventListener('loadedmetadata', () => {
+    $('p-dur').textContent = fmt(Math.floor(audioEl.duration));
+  });
+
+  // Play/Pause-Button-Icon synchron halten
+  audioEl.addEventListener('play',  () => { $('play-pause-btn').innerHTML = '&#9646;&#9646;'; });
+  audioEl.addEventListener('pause', () => { $('play-pause-btn').innerHTML = '&#9654;'; });
+
+  // Fortschrittsbalken: Scrubbing
+  $('progress-bar').addEventListener('input', e => {
+    if (!audioEl.duration || isNaN(audioEl.duration)) return;
+    audioEl.currentTime = (parseFloat(e.target.value) / 100) * audioEl.duration;
+  });
+}
+
+// ── Highlight + Playerbar ──────────────────────────────────────────────────
+function applyPlayHighlight(songId, albumId) {
+  document.querySelectorAll('.track-row.playing')
+    .forEach(el => el.classList.remove('playing'));
+  document.querySelectorAll('.album-row.web-active')
+    .forEach(el => el.classList.remove('web-active'));
+  document.querySelectorAll('.tr-play').forEach(el => {
+    if (el.innerHTML.includes('9835') || el.innerHTML.includes('spin'))
+      el.innerHTML = '&#9654;';
+  });
+  const trackEl = list.querySelector(`.track-row[data-song="${songId}"]`);
+  if (trackEl) {
+    trackEl.classList.add('playing');
+    const pb = trackEl.querySelector('.tr-play');
+    if (pb) pb.innerHTML = '&#9835;';
+  }
+  const rowEl = list.querySelector(`.album-row[data-id="${albumId}"]`);
+  if (rowEl) rowEl.classList.add('web-active');
+  S.lastAlbumId = albumId;
+  S.lastSongId  = songId;
+}
+
+function updatePlayerBar(title, artist, albumId, pos, total) {
+  $('player-title').textContent = title;
+  const qInfo = Q.active && total > 1 ? ` \u00b7 ${pos + 1}/${total}` : '';
+  $('player-artist').textContent = artist + qInfo;
+  const pc = $('player-cover');
+  pc.innerHTML = albumId
+    ? `<img src="/api/cover/${albumId}" onerror="this.style.display='none';this.parentElement.innerHTML='&#127911;'" alt="">`
+    : '&#127911;';
+  updateMediaSession(title, artist, albumId);
+}
+
+// ── Media Session API ─────────────────────────────────────────────────────
+/**
+ * Die Media Session API teilt dem Betriebssystem mit, dass diese Webseite
+ * aktiv Musik abspielt. Das hat mehrere Vorteile:
+ *
+ *   1. Sperrbildschirm-Steuerung: Play/Pause/Vor/Zurück auf iPhone/Android
+ *   2. Lenkrad-Tasten im Auto (über CarPlay/Android Auto Bluetooth-Profil)
+ *   3. Benachrichtigungsleiste zeigt Songtitel + Cover-Art
+ *   4. Verhindert aggressives Tab-Throttling von Chrome/Safari auf Mobilgeräten
+ *
+ * 'mediaSession' in navigator: Feature-Detection – ältere Browser unterstützen
+ * die API nicht, dann machen wir einfach nichts (graceful degradation).
+ *
+ * artwork[]: Cover-Bild für Sperrbildschirm. Der Browser lädt es über
+ * unseren /api/cover/{albumId} Endpunkt.
+ *
+ * setActionHandler: Registriert Callbacks für Hardware-Tasten.
+ * Ohne diese Handler würden Lenkrad/Kopfhörer-Tasten nicht funktionieren.
+ */
+function updateMediaSession(title, artist, albumId) {
+  if (!('mediaSession' in navigator)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title:  title  || 'YAMS WebPlayer',
+    artist: artist || '',
+    album:  '',
+    artwork: albumId ? [{ src: `/api/cover/${albumId}`, sizes: '512x512', type: 'image/jpeg' }] : [],
+  });
+  navigator.mediaSession.playbackState = 'playing';
+  // Hardware-Taste "Play" → audioEl.play()
+  navigator.mediaSession.setActionHandler('play',          () => { audioEl.play(); navigator.mediaSession.playbackState = 'playing'; });
+  // Hardware-Taste "Pause"
+  navigator.mediaSession.setActionHandler('pause',         () => { audioEl.pause(); navigator.mediaSession.playbackState = 'paused'; });
+  // Nächster Track (Lenkrad, Kopfhörer)
+  navigator.mediaSession.setActionHandler('nexttrack',     () => { if (Q.pos + 1 < Q.songs.length) { Q.pos++; playCurrent(); } });
+  // Vorheriger Track
+  navigator.mediaSession.setActionHandler('previoustrack', () => { if (Q.pos > 0) { Q.pos--; playCurrent(); } });
+  // Stop (räumt alles auf)
+  navigator.mediaSession.setActionHandler('stop',          () => { audioEl.pause(); audioEl.src = ''; queueClear(); navigator.mediaSession.playbackState = 'none'; });
+}
+
+// playbackState bei play/pause-Events synchron halten
+audioEl.addEventListener('play',  () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
+audioEl.addEventListener('pause', () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';  });
+
+// ── AudioContext Hintergrund-Fix ────────────────────────────────────────────
+// Wenn der Tab wieder sichtbar wird: AudioContext ggf. fortsetzen
+// (Chrome/Safari suspendieren den AudioContext in Hintergrund-Tabs)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && eqCtx && eqCtx.state === 'suspended') {
+    eqCtx.resume().then(() => {
+      if (Q.active && audioEl.paused && audioEl.src) audioEl.play().catch(() => {});
+    });
+  }
+});
+
+// AudioContext-State überwachen → bei unerwartetem Suspend sofort melden
+// (wird auf manchen iOS-Versionen direkt nach Tab-Wechsel ausgelöst)
+function watchEqCtxState() {
+  if (!eqCtx) return;
+  eqCtx.onstatechange = () => {
+    if (eqCtx.state === 'suspended' && document.visibilityState === 'visible') {
+      eqCtx.resume().catch(() => {});
+    }
+  };
+}
+
+// ── Pagination ─────────────────────────────────────────────────────────────
+function renderPagination() {
+  const pg = $('pagination');
+  pg.innerHTML = '';
+  const pages = Math.ceil(S.total / S.pageSize);
+  if (pages <= 1) return;
+  const make = (label, page, active=false, disabled=false) => {
+    const b = document.createElement('button');
+    b.className = 'pg-btn' + (active ? ' active' : '');
+    b.textContent = label; b.disabled = disabled;
+    if (!disabled && !active) b.addEventListener('click', () => {
+      S.page = page; loadAlbums(); $('list-wrap').scrollTo({top:0, behavior:'smooth'});
+    });
+    return b;
+  };
+  pg.appendChild(make('‹', S.page-1, false, S.page===1));
+  const start = Math.max(1, S.page-3), end = Math.min(pages, S.page+3);
+  if (start > 1) {
+    pg.appendChild(make('1', 1));
+    if (start > 2) pg.appendChild(Object.assign(document.createElement('span'),
+      {textContent:'…', className:'pg-btn', style:'cursor:default'}));
+  }
+  for (let i=start; i<=end; i++) pg.appendChild(make(i, i, i===S.page));
+  if (end < pages) {
+    if (end < pages-1) pg.appendChild(Object.assign(document.createElement('span'),
+      {textContent:'…', className:'pg-btn', style:'cursor:default'}));
+    pg.appendChild(make(pages, pages));
+  }
+  pg.appendChild(make('›', S.page+1, false, S.page===pages));
+  const info = document.createElement('span');
+  info.id = 'pg-info'; info.textContent = `Seite ${S.page}/${pages}`; pg.appendChild(info);
+}
+
+// ── Events ─────────────────────────────────────────────────────────────────
+function bindEvents() {
+
+  // Modus-Buttons
+  document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', () => {
+    if (b.dataset.mode !== S.mode) switchMode(b.dataset.mode);
+  }));
+
+  // Genre-Popup
+  $('genre-btn-main').addEventListener('click', e => { e.stopPropagation(); openGenrePopup('main', e.currentTarget); });
+  $('genre-btn-by').addEventListener('click',  e => { e.stopPropagation(); openGenrePopup('by',   e.currentTarget); });
+  $('genre-popup-close').addEventListener('click', closeGenrePopup);
+  $('genre-overlay').addEventListener('click', closeGenrePopup);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGenrePopup(); });
+
+  // Suche
+  $('search-btn').addEventListener('click', doSearch);
+  $('reset-btn').addEventListener('click', () => {
+    $('f-artist').value = '';
+    $('f-year-from').value = ''; $('f-year-to').value = '';
+    $('f-rating').value = 5; $('rating-val').textContent = '5.0000';
+    $('artist-list').innerHTML = '';
+    document.querySelectorAll('input[name="f-typ"]').forEach(cb => cb.checked = cb.value === 'S');
+    document.querySelectorAll('input[name="f-cat"]').forEach(cb => cb.checked = cb.value === 'O');
+    S.filters = {artist:'', yearFrom:null, yearTo:null, genres:[], xgenres:[], maxRating:5.0, typ:'S', cat:'O'};
+    refreshGenrePicker($('genre-groups-main'), $('genre-chips-main'), () => S.filters.genres, () => S.filters.xgenres);
+    updateGenreBadge('main');
+    S.page = 1; loadAlbums();
+  });
+  $('f-artist').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+  $('f-rating').addEventListener('input', e => {
+    $('rating-val').textContent = parseFloat(e.target.value).toFixed(4);
+  });
+
+  // Autocomplete Artist
+  let _ac;
+  $('f-artist').addEventListener('input', e => {
+    clearTimeout(_ac);
+    const q = e.target.value.trim();
+    if (q.length < 1) { $('artist-list').innerHTML = ''; return; }
+    _ac = setTimeout(async () => {
+      try {
+        const a = await api(`/api/artists?q=${encodeURIComponent(q)}`);
+        $('artist-list').innerHTML = a.map(x => `<option value="${esc(x)}"></option>`).join('');
+      } catch {}
+    }, 180);
+  });
+
+  $('toggle-search-btn').addEventListener('click', () => {
+    if (S.mode !== 'all') return;
+    const sp = $('search-panel');
+    sp.style.display = sp.style.display === 'none' ? '' : 'none';
+  });
+
+  const sortDefaults = { artist:'asc', year:'desc', rating:'asc', title:'asc', played:'desc' };
+  document.querySelectorAll('.sort-btn').forEach(b => b.addEventListener('click', () => {
+    const field = b.dataset.sort;
+    if (S.sortBy === field) {
+      S.sortDir = S.sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      S.sortBy  = field;
+      S.sortDir = sortDefaults[field] ?? 'asc';
+    }
+    document.querySelectorAll('.sort-btn').forEach(x => { x.classList.remove('active'); delete x.dataset.dir; });
+    b.classList.add('active');
+    b.dataset.dir = S.sortDir;
+    S.page = 1;
+    loadAlbums();
+  }));
+
+  $('page-size-sel').addEventListener('change', e => {
+    S.pageSize = parseInt(e.target.value); S.page = 1; loadAlbums();
+  });
+
+  async function applyOnlyOriginal(checked) {
+    S.onlyOriginal = checked;
+    $('f-only-original').checked    = checked;
+    $('f-only-original-by').checked = checked;
+    clearTracksCache();
+    if (S.expandedId) renderTracks(S.expandedId);
+    if (Q.active && S.lastAlbumId) {
+      try {
+        const rebuilt = await queueBuildFrom(S.lastAlbumId);
+        const pos = S.lastSongId ? rebuilt.findIndex(s => s.songId === S.lastSongId) : 0;
+        Q.songs = rebuilt;
+        Q.pos   = Math.max(0, pos);
+      } catch {}
+    }
+  }
+  $('f-only-original').addEventListener('change',    e => applyOnlyOriginal(e.target.checked));
+  $('f-only-original-by').addEventListener('change', e => applyOnlyOriginal(e.target.checked));
+
+  // By-Year Optionen
+  $('f-rating-by').addEventListener('input', e => {
+    $('rating-val-by').textContent = parseFloat(e.target.value).toFixed(2);
+  });
+  $('byyear-load-btn').addEventListener('click', () => {
+    S.byYear.typ       = [...document.querySelectorAll('input[name="by-typ"]:checked')].map(el => el.value).join(',');
+    S.byYear.cat       = [...document.querySelectorAll('input[name="by-cat"]:checked')].map(el => el.value).join(',');
+    S.byYear.maxPerYear = parseInt($('f-max-per-year').value) || 0;
+    S.byYear.maxRating  = parseFloat($('f-rating-by').value) || 2.25;
+    S.byYear.limit      = parseInt($('f-limit').value)       || 100;
+    S.byYear.yearFrom   = parseInt($('f-year-from-by').value) || null;
+    S.byYear.yearTo     = parseInt($('f-year-to-by').value)   || null;
+    clearTracksCache();
+    loadByYear();
+  });
+
+  // Player-Cover klickt zum aktuellen Album
+  $('player-cover').addEventListener('click', () => {
+    if (S.lastAlbumId) {
+      const row = list.querySelector(`.album-row[data-id="${S.lastAlbumId}"]`);
+      if (row) {
+        row.scrollIntoView({behavior:'smooth', block:'center'});
+        toggleTracks(S.lastAlbumId, row);
+      }
+    }
+  });
+
+  // Queue Prev / Next
+  $('q-prev').addEventListener('click', () => queueNav(-1));
+  $('q-next').addEventListener('click', () => queueNav(+1));
+
+  // Play / Pause
+  $('play-pause-btn').addEventListener('click', () => {
+    if (audioEl.paused) audioEl.play().catch(() => {});
+    else audioEl.pause();
+  });
+
+  // Stop
+  $('player-stop').addEventListener('click', () => {
+    audioEl.pause();
+    audioEl.currentTime = 0;
+    audioEl.src = '';
+    queueClear();
+    document.querySelectorAll('.track-row.playing').forEach(el => el.classList.remove('playing'));
+    document.querySelectorAll('.album-row.web-active').forEach(el => el.classList.remove('web-active'));
+    document.querySelectorAll('.tr-play').forEach(el => {
+      if (el.innerHTML.includes('9835')) el.innerHTML = '&#9654;';
+    });
+    $('player-title').textContent  = 'Kein Song geladen';
+    $('player-artist').textContent = 'Gestoppt';
+    $('progress-bar').value        = 0;
+    $('p-cur').textContent         = '0:00';
+    $('p-dur').textContent         = '0:00';
+    $('play-pause-btn').innerHTML  = '&#9654;';
+    showToast('\u23f9 Gestoppt', 2000);
+  });
+
+  // Lautstärke
+  $('vol-slider').addEventListener('input', e => {
+    audioEl.volume = parseInt(e.target.value) / 100;
+  });
+}
+
+function doSearch() {
+  S.filters.artist    = $('f-artist').value.trim();
+  S.filters.typ = [...document.querySelectorAll('input[name="f-typ"]:checked')].map(el => el.value).join(',');
+  S.filters.cat = [...document.querySelectorAll('input[name="f-cat"]:checked')].map(el => el.value).join(',');
+  S.filters.yearFrom  = parseInt($('f-year-from').value) || null;
+  S.filters.yearTo    = parseInt($('f-year-to').value)   || null;
+  S.filters.maxRating = parseFloat($('f-rating').value)  || 5.0;
+  clearTracksCache();
+  S.page = 1; loadAlbums();
+}
+
+// ── Equalizer (Web Audio API) ─────────────────────────────────────────────
+/*
+ * Web Audio API: Routing-Kette
+ * ────────────────────────────────────────────────────────────────────────
+ * <audio> Element
+ *    │
+ *    └── createMediaElementSource()  ← klinkt sich in den Audio-Stream ein
+ *           │
+ *           ├── BiquadFilterNode (32 Hz,  peaking)   ← Bass
+ *           ├── BiquadFilterNode (64 Hz,  peaking)
+ *           ├── BiquadFilterNode (125 Hz, peaking)
+ *           ├── BiquadFilterNode (250 Hz, peaking)
+ *           ├── BiquadFilterNode (500 Hz, peaking)
+ *           ├── BiquadFilterNode (1 kHz,  peaking)   ← Mitten
+ *           ├── BiquadFilterNode (2 kHz,  peaking)
+ *           ├── BiquadFilterNode (4 kHz,  peaking)
+ *           ├── BiquadFilterNode (8 kHz,  peaking)
+ *           └── BiquadFilterNode (16 kHz, peaking)  ← Höhen
+ *                  │
+ *                  └── AudioContext.destination  ← Lautsprecher
+ *
+ * "peaking" Filter: verstärkt/dämpft einen Frequenzbereich.
+ *   frequency = Mittenfrequenz in Hz
+ *   Q (Quality) = Breite des Bandes (1.4 = breites, musikalisches Band)
+ *   gain = Verstärkung in dB (-12 bis +12)
+ *
+ * WICHTIG: createMediaElementSource() kann nur EINMAL pro Element aufgerufen
+ * werden. Deshalb: if (eqCtx) return; am Anfang von eqInit().
+ */
+
+// 10-Band Frequenzen (Standard für Heimhifi-Equalizer)
+const EQ_FREQS   = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+const EQ_LABELS_TEXT = ['32','64','125','250','500','1k','2k','4k','8k','16k'];
+
+/*
+ * EQ-Presets: Array mit 10 dB-Werten (je ein Wert pro Frequenzband).
+ * Positive Werte = Verstärkung (+6 dB = doppelte Lautstärke des Bandes).
+ * Negative Werte = Abschwächung.
+ * Loudness: Klassische "Smile-Kurve" – boosted Bass und Höhen gleichzeitig.
+ *           Kompensiert die menschliche Gehörcharakteristik bei niedrigen Lautstärken
+ *           (Fletcher-Munson-Kurven: Ohr hört Bass und Höhen bei leiser Musik schlechter).
+ */
+const EQ_PRESETS = {
+  'Flat':      [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0],
+  'Rock':      [+4, +3, +2,  0,  0, -1, -1, +2, +3, +4],
+  'Pop':       [-1,  0, +2, +3, +3, +2,  0, -1, -1, -1],
+  'Jazz':      [+3, +2,  0,  0, -1, -1,  0, +2, +3, +3],
+  'Klassik':   [+4, +3, +2, +1,  0,  0,  0, +1, +2, +3],
+  'Bass Boost':[+8, +6, +4, +2,  0,  0,  0,  0,  0,  0],
+  'Treble':    [ 0,  0,  0,  0,  0, +2, +4, +6, +8, +8],
+  'Vocal':     [-2, -2,  0, +3, +5, +5, +3,  0, -1, -2],
+  'Electronic':[+5, +4,  0,  0,  0, +2, +2, +3, +4, +5],
+  'Hip-Hop':   [+5, +4, +2,  0, -1, -1,  0, +2, +3, +3],
+  'Loudness':  [+6, +5, +3, +1,  0,  0,  0, +1, +3, +5],
+};
+
+// EQ-Status-Variablen (null = EQ noch nicht initialisiert)
+let eqCtx    = null;   // AudioContext (nur einer erlaubt pro Seite)
+let eqFilters = [];    // Array der 10 BiquadFilterNodes
+let eqSource  = null;  // MediaElementSourceNode (Brücke zwischen <audio> und Web Audio API)
+
+
+/**
+ * Initialisiert den Equalizer (einmalig).
+ * Bei erneutem Aufruf: AudioContext fortsetzen falls er suspendiert wurde.
+ *
+ * Ketten-Aufbau: source → filter0 → filter1 → ... → filter9 → destination
+ * Variable "node" zeigt immer auf den letzten verbundenen Knoten,
+ * damit die Kette dynamisch aufgebaut werden kann.
+ */
+function eqInit() {
+  if (eqCtx) { eqCtx.resume(); return; }
+  // latencyHint:'playback' = Browser optimiert für unterbrechungsfreies Streaming
+  // (größerer Buffer, weniger Glitches) statt für niedrige Latenz (Musikproduktion).
+  eqCtx    = new AudioContext({ latencyHint: 'playback' });
+  eqSource = eqCtx.createMediaElementSource(audioEl);
+  let node = eqSource;
+  EQ_FREQS.forEach(freq => {
+    const f = eqCtx.createBiquadFilter();
+    f.type            = 'peaking';  // Verstärkt/dämpft Bereich um Mittenfrequenz
+    f.frequency.value = freq;       // Mittenfrequenz in Hz
+    f.Q.value         = 1.4;        // Bandbreite (1.4 = breites, natürliches Band)
+    f.gain.value      = 0;          // Start: flach (0 dB = keine Änderung)
+    node.connect(f); node = f; eqFilters.push(f);
+  });
+  node.connect(eqCtx.destination);  // Letztes Filter → Lautsprecher
+  // Sofort aufwecken: Chrome startet AudioContext manchmal im 'suspended'-Zustand,
+  // auch wenn der Aufruf innerhalb eines User-Gesture-Handlers erfolgt.
+  eqCtx.resume().catch(() => {});
+  eqLoad();           // Gespeicherte Einstellungen wiederherstellen
+  watchEqCtxState();  // Hintergrund-Suspend-Erkennung aktivieren
+}
+
+/**
+ * Setzt ein einzelnes EQ-Band auf einen dB-Wert.
+ * Aktualisiert gleichzeitig: Filter-Node, Slider, dB-Label.
+ * db >= 0 → '+6 dB', db < 0 → '-3 dB'
+ */
+function eqSetBand(i, db) {
+  if (eqFilters[i]) eqFilters[i].gain.value = db;
+  const slider = document.querySelector(`.eq-slider[data-i="${i}"]`);
+  const label  = document.querySelector(`.eq-db[data-i="${i}"]`);
+  if (slider) slider.value = db;
+  if (label)  label.textContent = (db >= 0 ? '+' : '') + db + ' dB';
+}
+
+/**
+ * Wendet ein Preset auf alle 10 Bänder an.
+ * Fallback auf 'Flat' wenn Preset-Name unbekannt.
+ */
+function eqApplyPreset(name) {
+  const vals = EQ_PRESETS[name] || EQ_PRESETS['Flat'];
+  vals.forEach((db, i) => eqSetBand(i, db));
+  eqSave(name, vals);
+}
+
+/**
+ * Speichert EQ-Einstellungen im localStorage des Browsers.
+ * localStorage = dauerhafter clientseitiger Speicher (bleibt nach Browser-Neustart).
+ * JSON.stringify wandelt das Objekt in einen String für die Speicherung.
+ */
+function eqSave(preset, vals) {
+  localStorage.setItem('eq', JSON.stringify({ preset, vals }));
+}
+
+/**
+ * Lädt gespeicherte EQ-Einstellungen beim Start.
+ * try/catch: Falls localStorage leer oder korrupt ist, einfach ignorieren.
+ * JSON.parse wandelt den gespeicherten String zurück in ein Objekt.
+ */
+function eqLoad() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('eq') || 'null');
+    if (!saved) return;
+    saved.vals.forEach((db, i) => eqSetBand(i, db));
+    const sel = $('eq-preset');
+    if (sel) sel.value = saved.preset;
+  } catch {}
+}
+
+function eqBuildUI() {
+  const container = $('eq-bands');
+  container.innerHTML = '';
+  EQ_FREQS.forEach((freq, i) => {
+    const band = document.createElement('div');
+    band.className = 'eq-band';
+    band.innerHTML = `
+      <div class="eq-db" data-i="${i}">0 dB</div>
+      <input class="eq-slider" type="range" data-i="${i}"
+             min="-12" max="12" step="1" value="0"
+             orient="vertical">
+      <div class="eq-label">${EQ_LABELS_TEXT[i]}</div>`;
+    container.appendChild(band);
+  });
+
+  container.querySelectorAll('.eq-slider').forEach(sl => {
+    sl.addEventListener('input', () => {
+      const i  = parseInt(sl.dataset.i);
+      const db = parseInt(sl.value);
+      eqSetBand(i, db);
+      $('eq-preset').value = 'custom';
+      const vals = eqFilters.map(f => Math.round(f.gain.value));
+      eqSave('custom', vals);
+    });
+  });
+
+  // Preset-Option "custom" (nur wenn manuell geändert)
+  const sel = $('eq-preset');
+  if (!sel.querySelector('option[value="custom"]')) {
+    const opt = document.createElement('option');
+    opt.value = 'custom'; opt.textContent = '— Manuell —';
+    sel.appendChild(opt);
+  }
+
+  eqLoad();
+}
+
+function eqOpen() {
+  eqInit();
+  if (!$('eq-bands').children.length) eqBuildUI();
+  $('eq-modal').classList.add('open');
+  $('eq-overlay').classList.add('open');
+  $('eq-btn').classList.add('active');
+}
+
+function eqClose() {
+  $('eq-modal').classList.remove('open');
+  $('eq-overlay').classList.remove('open');
+  $('eq-btn').classList.remove('active');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  $('eq-btn').addEventListener('click', () => {
+    $('eq-modal').classList.contains('open') ? eqClose() : eqOpen();
+  });
+  $('eq-close-btn').addEventListener('click', eqClose);
+  $('eq-overlay').addEventListener('click',  eqClose);
+  $('eq-preset').addEventListener('change', e => {
+    if (e.target.value !== 'custom') eqApplyPreset(e.target.value);
+  });
+  $('eq-reset-btn').addEventListener('click', () => {
+    eqApplyPreset('Flat');
+    $('eq-preset').value = 'Flat';
+  });
+});
+
+init();
+</script>
+</body>
+</html>
