@@ -174,6 +174,64 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
 .mode-btn[data-mode="all"].active   {color:#fff ;background:var(--accent);border-color:var(--accent)}
 .mode-btn[data-mode="best"].active  {color:#000 ;background:var(--gold)  ;border-color:var(--gold)}
 .mode-btn[data-mode="report"].active{color:#000 ;background:var(--green) ;border-color:var(--green)}
+.mode-btn[data-mode="playlists"].active{color:#fff;background:#e44;border-color:#e44}
+
+/* ── Playlist-Zeilen ────────────────────────────────── */
+.pl-row{
+  display:grid;
+  grid-template-columns:var(--num-w) var(--cover-w) 1fr auto auto;
+  align-items:center;column-gap:var(--gap);
+  padding:10px 16px;border-bottom:1px solid var(--border);
+  cursor:pointer;transition:background .12s;
+}
+.pl-row:hover{background:var(--card)}
+.pl-row.expanded{background:var(--card);border-bottom:none}
+.pl-row.pl-active{border-left:3px solid var(--play);padding-left:13px}
+.pl-icon{
+  width:var(--cover-w);height:var(--cover-w);border-radius:5px;
+  background:linear-gradient(135deg,#1e1e40,#2a1a50);
+  display:flex;align-items:center;justify-content:center;
+  font-size:26px;color:#4a4a80;flex-shrink:0;
+}
+.pl-info{min-width:0}
+.pl-name{font-size:14px;font-weight:700;font-style:italic;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:2px}
+.pl-meta{font-size:11px;color:var(--muted)}
+.pl-actions{display:flex;gap:4px;flex-shrink:0}
+.pl-qplay{
+  font-size:13px;width:30px;height:30px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg);border:1px solid var(--border);color:var(--muted);
+  transition:all .15s;cursor:pointer;
+}
+.pl-qplay:hover{background:var(--play);color:#fff;border-color:var(--play)}
+.pl-shuffle{font-size:11px;font-weight:700;font-style:italic}
+.pl-chevron{color:var(--muted);font-size:16px;padding:4px 2px;user-select:none;transition:transform .2s}
+.pl-row.expanded .pl-chevron{transform:rotate(90deg)}
+
+/* ── Playlist-Track-Liste ───────────────────────────── */
+.pl-tracks{
+  background:var(--card);border-bottom:1px solid var(--border);
+  padding:0 16px 12px var(--track-indent);display:none;
+}
+.pl-tracks.open{display:block}
+.pl-tracks-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 4px 8px 0;border-bottom:1px solid var(--border);margin-bottom:6px;
+}
+.btn-play-pl{
+  font-size:11px;font-weight:700;background:var(--play);color:#fff;
+  border-radius:12px;padding:3px 10px;transition:background .15s;cursor:pointer;
+}
+.btn-play-pl:hover{background:var(--play-h)}
+.pl-track-row{
+  display:flex;gap:8px;padding:4px 6px;border-radius:4px;
+  align-items:center;cursor:pointer;transition:background .1s;
+}
+.pl-track-row:hover{background:var(--card-h)}
+.pl-track-row.pl-playing .tr-title{color:var(--play)}
+.pl-track-row.pl-playing .tr-num{color:var(--play)}
+.pl-track-row.pl-playing .tr-play{color:var(--play)}
 #result-count{font-size:12px;color:var(--muted)}
 .sort-btns{display:flex;gap:3px}
 .sort-btn{font-size:12px;padding:3px 9px;border-radius:4px;color:var(--muted);border:1px solid transparent;transition:all .15s}
@@ -250,9 +308,13 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
 .info-stats span{margin-right:10px}
 
 .ps-dot{
-  display:inline-block;width:16px;height:16px;
-  border-radius:2px;flex-shrink:0;vertical-align:middle;
-  border:1px solid rgba(0,0,0,.25);
+  display:inline-block;width:20px;height:20px;
+  border-radius:3px;flex-shrink:0;vertical-align:middle;
+  border:1px solid rgba(0,0,0,.3);
+}
+.ps-code{
+  font-family:monospace;font-size:10px;color:#888;
+  letter-spacing:.5px;vertical-align:middle;white-space:nowrap;
 }
 
 .note{font-weight:700;font-size:10px;letter-spacing:.3px;text-transform:uppercase}
@@ -550,9 +612,46 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
   .mode-btn{padding:4px 8px;font-size:11px}
   #vol-wrap{display:none}
 }
+
+/* ── Spielstatus-Legende Modal ───────────────────────────────────────────── */
+#ps-legend-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:900;align-items:center;justify-content:center}
+#ps-legend-overlay.open{display:flex}
+#ps-legend-box{background:#1e1e2e;border:1px solid #444;border-radius:10px;padding:24px;max-width:820px;width:95%;max-height:90vh;overflow-y:auto;color:#ddd;font-size:13px}
+#ps-legend-box h2{margin:0 0 16px;font-size:16px;color:#ccc}
+#ps-legend-close{float:right;background:none;border:none;color:#aaa;font-size:20px;cursor:pointer;line-height:1}
+#ps-legend-box table{border-collapse:collapse;width:100%}
+#ps-legend-box th{background:#2a2a3e;padding:7px 10px;text-align:center;font-weight:600;color:#bbb;border-bottom:2px solid #444}
+#ps-legend-box td{padding:6px 10px;text-align:center;border-bottom:1px solid #333}
+#ps-legend-box tr:last-child td{border-bottom:none}
+#ps-legend-box tr:hover td{background:#252535}
+.ps-swatch{display:inline-block;width:42px;height:28px;border-radius:5px;vertical-align:middle;border:1px solid rgba(255,255,255,.2)}
+.ps-status{font-size:15px}
+.ps-desc{text-align:left!important;color:#bbb}
+.ps-score{font-family:monospace;color:#999}
 </style>
 </head>
 <body>
+<div id="ps-legend-overlay">
+  <div id="ps-legend-box">
+    <button id="ps-legend-close" title="Schließen">&#10005;</button>
+    <h2>&#9432; Spielstatus-Legende</h2>
+    <table id="ps-legend-table">
+      <thead>
+        <tr>
+          <th>Farbe</th>
+          <th>Code</th>
+          <th>Note&nbsp;1</th>
+          <th>Note&nbsp;2</th>
+          <th>Note&nbsp;3</th>
+          <th>Note&nbsp;4/5</th>
+          <th>Score</th>
+        </tr>
+      </thead>
+      <tbody id="ps-legend-body"></tbody>
+    </table>
+  </div>
+</div>
+
 <div id="app">
 
 <header>
@@ -560,6 +659,7 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
   <div id="stats-bar"></div>
   <div class="spacer"></div>
   <button class="btn secondary" id="toggle-search-btn">&#128269; Suche</button>
+  <button class="btn secondary" id="ps-legend-btn" title="Farb-Legende Spielstatus">&#9432; Spielstatus-Legende</button>
 </header>
 
 <datalist id="artist-list"></datalist>
@@ -683,6 +783,7 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
     <button class="mode-btn active" data-mode="all">Alle Alben</button>
     <button class="mode-btn" data-mode="best">&#9733; Beste je Jahr</button>
     <button class="mode-btn" data-mode="report">&#9734; All Time Best</button>
+    <button class="mode-btn" data-mode="playlists">&#9835; Playlists</button>
   </div>
   <span id="result-count"></span>
   <div class="spacer"></div>
@@ -850,6 +951,9 @@ const Q = { songs:[], pos:-1, active:false };
 // current:  Aktuell angezeigtes Jahr
 const BY = { yearList:[], grouped:{}, current:null };
 
+// ── Playlist Daten ───────────────────────────────────────────────────────
+const PL = { playlists:[], cache:{}, expandedId:null, activeId:null };
+
 // ── DOM-Referenzen ────────────────────────────────────────────────────────
 // Häufig benötigte Elemente einmal cachen (document.getElementById ist teuer
 // wenn es hunderte Male aufgerufen wird).
@@ -992,32 +1096,53 @@ async function loadPlayStatus() {
  *
  * Farb-Logik (Priorität von hoch nach niedrig):
  *   Rot:        Note-1-Songs vorhanden aber noch nie gespielt → höchste Prio
- *   Rot/lila:   Note-1-Songs teils gespielt (Streifen = gemischt)
- *   Orange:     Note-2-Songs ungespielt
- *   Gelb:       Note-3-Songs ungespielt
- *   Hellgrün:   Note-4/5-Songs ungespielt
- *   Grün:       Alles gespielt (oder kein Eintrag = kein Spielstatus)
+ *   Gewichteter Score: Note-1-Songs dominieren (60% Gewicht).
+ *   Alle Note-1 gespielt → Score 0.6 → bereits gelbgrün.
+ *   Rot nur wenn gar nichts gespielt wurde.
+ *   Streifen wenn eine Notengruppe teils gespielt ist.
  *
- * repeating-linear-gradient = CSS-Streifen für "teils gespielt" Status.
- * Die innere stripe()-Funktion ist lokal und nur hier sichtbar (Closure).
+ * Gewichte: Note 1 = 60%, Note 2 = 20%, Note 3 = 12%, Note 4/5 = 8%
+ * Farbe:    HSL-Gradient Rot (0°) → Gelbgrün (90°) → Grün (120°)
  */
 function psStyle(albumId) {
   const d = PS[albumId];
   if (!d) return 'background:green';
-  const nothingPlayed = d.n1Played === 0 && d.n2Played === 0 && d.n3Played === 0 && d.n4Played === 0;
-  if (nothingPlayed)                    return 'background:red';
-  if (d.n1Count > 0 && d.n1Played===0) return 'background:red';
-  if (d.n1Count > 0 && d.n1Played > 0) return stripe('red',       'palevioletred');
-  if (d.n2Count > 0 && d.n2Played===0) return 'background:darkorange';
-  if (d.n2Count > 0 && d.n2Played > 0) return stripe('darkorange','palegoldenrod');
-  if (d.n3Count > 0 && d.n3Played===0) return 'background:gold';
-  if (d.n3Count > 0 && d.n3Played > 0) return stripe('gold',      'lightseagreen');
-  if (d.n4Count > 0 && d.n4Played===0) return 'background:limegreen';
-  if (d.n4Count > 0 && d.n4Played > 0) return stripe('limegreen', 'green');
-  return 'background:green';
-  // Hilfsfunktion: CSS-Streifen aus zwei Farben (45°, 3px Breite)
-  function stripe(a, b) {
-    return `background:repeating-linear-gradient(45deg,${a},${a} 3px,${b} 3px,${b} 6px)`;
+
+  const groups = [
+    { played: d.n1Played, total: d.n1Count + d.n1Played, weight: 0.60 },
+    { played: d.n2Played, total: d.n2Count + d.n2Played, weight: 0.20 },
+    { played: d.n3Played, total: d.n3Count + d.n3Played, weight: 0.12 },
+    { played: d.n4Played, total: d.n4Count + d.n4Played, weight: 0.08 },
+  ].filter(g => g.total > 0);
+
+  if (groups.length === 0) return 'background:green';
+  if (groups.every(g => g.played === 0)) return 'background:red';
+
+  const totalWeight = groups.reduce((s, g) => s + g.weight, 0);
+  let score = 0;
+  let inProgress = false;
+  groups.forEach(g => {
+    const completion = g.played / g.total;
+    score += completion * g.weight / totalWeight;
+    if (completion > 0 && completion < 1) inProgress = true;
+  });
+
+  // Grün nur wenn wirklich alles gespielt
+  if (groups.every(g => g.played === g.total)) return 'background:hsl(120,90%,38%)';
+
+  const baseColor = scoreToColor(score);
+  if (inProgress) {
+    const stripeColor = (score + 0.20 >= 1) ? 'hsl(120,90%,38%)' : scoreToColor(score + 0.20);
+    return `background:repeating-linear-gradient(45deg,${baseColor},${baseColor} 3px,${stripeColor} 3px,${stripeColor} 6px)`;
+  }
+  return `background:${baseColor}`;
+
+  // Dunkelrot → Orange → Gelb — Grün nur für "alles gespielt"
+  // Hue UND Lightness variieren → mehr visuelle Unterscheidbarkeit
+  function scoreToColor(s) {
+    const hue  = Math.round(s * 58);
+    const lght = Math.round(28 + s * 16);
+    return `hsl(${hue},92%,${lght}%)`;
   }
 }
 function psTitle(albumId) {
@@ -1031,6 +1156,21 @@ function psTitle(albumId) {
   if (d.n3Count > 0) parts.push(`Note 3: ${d.n3Played} gespielt, ${d.n3Count} offen`);
   if (d.n4Count > 0) parts.push(`Note 4/5: ${d.n4Played} gespielt, ${d.n4Count} offen`);
   return parts.join(' | ') || 'Alle gespielt';
+}
+
+function psCode(albumId) {
+  const d = PS[albumId];
+  if (!d) return '<span style="color:#555">–</span>';
+  function s(played, count) {
+    const t = played + count;
+    if (t === 0)      return '<span style="color:#555">–</span>';
+    if (played === 0) return '<span style="color:#e55">N</span>';
+    if (played === t) return '<span style="color:#5d5">A</span>';
+    return '<span style="color:#fa8">T</span>';
+  }
+  const sep = '<span style="color:#555">-</span>';
+  return [s(d.n1Played,d.n1Count), s(d.n2Played,d.n2Count),
+          s(d.n3Played,d.n3Count), s(d.n4Played,d.n4Count)].join(sep);
 }
 
 // ── Genre-Picker ─────────────────────────────────────────────────────────────
@@ -1182,6 +1322,11 @@ function switchMode(mode) {
     ss.style.display  = '';
     byp.classList.remove('visible', 'report-mode', 'best-mode');
     yn.classList.remove('visible');
+  } else if (mode === 'playlists') {
+    sp.style.display  = 'none';
+    ss.style.display  = 'none';
+    byp.classList.remove('visible', 'report-mode', 'best-mode');
+    yn.classList.remove('visible');
   } else {
     sp.style.display  = 'none';
     ss.style.display  = 'none';
@@ -1191,6 +1336,7 @@ function switchMode(mode) {
     yn.classList.remove('visible');
   }
   if (mode === 'all') loadAlbums();
+  else if (mode === 'playlists') loadPlaylists();
   else loadByYear();
 }
 
@@ -1328,6 +1474,7 @@ function buildRow(a, idx) {
       </div>
       <div class="info-stats">
         <span class="ps-dot" style="${psStyle(a.id)}" title="${psTitle(a.id)}"></span>
+        <span class="ps-code">${psCode(a.id)}</span>
         ${statsHtml}
       </div>
     </div>
@@ -1568,6 +1715,7 @@ async function playCurrent() {
   audioEl.play().catch(() => {});
   applyPlayHighlight(song.songId, song.albumId);
   updatePlayerBar(song.title, song.artist, song.albumId, Q.pos, Q.songs.length);
+  if (S.mode === 'playlists' && PL.activeId != null) highlightPlaylistTrack(Q.pos, PL.activeId);
   showToast(`\u266b ${song.title}`, 2500, true);  // \u266b = ♫
 }
 
@@ -1611,6 +1759,216 @@ async function dispatchToPlayer(songId, title, artist, albumId, trackEl) {
  * ?. (Optional Chaining): Q.songs[Q.pos]?.albumId gibt undefined zurück
  * statt einen Fehler wenn Q.songs[Q.pos] nicht existiert.
  */
+// ── Playlists ────────────────────────────────────────────────────────────
+
+function plSafeId(id) { return 'pl-' + id; }
+
+async function loadPlaylists() {
+  loading.style.display = 'block'; empty.style.display = 'none'; list.innerHTML = '';
+  $('pagination').innerHTML = '';
+  PL.expandedId = null;
+
+  try {
+    PL.playlists = await api('/api/playlists');
+    loading.style.display = 'none';
+    $('result-count').textContent = `${PL.playlists.length} Playlists`;
+    if (!PL.playlists.length) { empty.style.display = 'block'; return; }
+
+    PL.playlists.forEach((pl, i) => {
+      list.appendChild(buildPlaylistRow(pl, i + 1));
+      const tc = document.createElement('div');
+      tc.className = 'pl-tracks';
+      tc.id = `pltracks-${plSafeId(pl.id)}`;
+      list.appendChild(tc);
+    });
+  } catch(e) {
+    loading.style.display = 'none';
+    showToast('Fehler: ' + e.message, 4000);
+  }
+}
+
+function buildPlaylistRow(pl, idx) {
+  const row = document.createElement('div');
+  row.className = 'pl-row' + (pl.id === PL.activeId ? ' pl-active' : '');
+  row.dataset.plid = pl.id;
+
+  row.innerHTML = `
+    <div class="row-num">${idx}.</div>
+    <div class="pl-icon">&#9835;</div>
+    <div class="pl-info">
+      <div class="pl-name" title="${esc(pl.name)}">${esc(pl.name)}</div>
+      <div class="pl-meta">${pl.trackCount} Tracks</div>
+    </div>
+    <div class="pl-actions">
+      <button class="pl-qplay" data-plid="${pl.id}" data-shuffle="false" title="Abspielen (sequentiell)">&#9654;</button>
+      <button class="pl-qplay pl-shuffle" data-plid="${pl.id}" data-shuffle="true" title="Abspielen (Shuffle)">S</button>
+    </div>
+    <div class="pl-chevron">&#9654;</div>`;
+
+  row.querySelectorAll('.pl-qplay').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      quickPlayPlaylist(parseInt(btn.dataset.plid), btn.dataset.shuffle === 'true', btn);
+    });
+  });
+
+  row.addEventListener('click', () => togglePlaylistTracks(pl.id, row));
+  return row;
+}
+
+async function togglePlaylistTracks(plId, rowEl) {
+  const tc = $(`pltracks-${plSafeId(plId)}`);
+  const isOpen = tc.classList.contains('open');
+
+  if (PL.expandedId != null && PL.expandedId !== plId) {
+    const prevTc  = $(`pltracks-${plSafeId(PL.expandedId)}`);
+    const prevRow = list.querySelector(`.pl-row[data-plid="${PL.expandedId}"]`);
+    if (prevTc)  prevTc.classList.remove('open');
+    if (prevRow) prevRow.classList.remove('expanded');
+    PL.expandedId = null;
+  }
+
+  if (isOpen) {
+    tc.classList.remove('open');
+    rowEl.classList.remove('expanded');
+    PL.expandedId = null;
+    return;
+  }
+
+  rowEl.classList.add('expanded');
+  tc.classList.add('open');
+  PL.expandedId = plId;
+  tc.scrollIntoView({ behavior:'smooth', block:'nearest' });
+
+  if (!PL.cache[plId]) {
+    tc.innerHTML = '<div style="padding:12px 0;text-align:center;color:var(--muted);font-size:12px"><div class="spinner"></div><br>Lade Tracks…</div>';
+    try {
+      PL.cache[plId] = await api(`/api/playlists/${plId}/tracks`);
+    } catch(e) {
+      tc.innerHTML = `<div style="padding:10px;color:var(--danger)">Fehler: ${esc(e.message)}</div>`;
+      return;
+    }
+  }
+
+  renderPlaylistTracks(plId);
+}
+
+function renderPlaylistTracks(plId) {
+  const tc = $(`pltracks-${plSafeId(plId)}`);
+  const tracks = PL.cache[plId] || [];
+
+  if (!tracks.length) {
+    tc.innerHTML = '<div style="padding:10px;color:var(--muted);font-size:12px">Keine Tracks</div>';
+    return;
+  }
+
+  let html = `<div class="pl-tracks-header">
+    <span>${tracks.length} Tracks</span>
+    <button class="btn-play-pl" data-plid="${plId}">&#9654; Abspielen</button>
+  </div>`;
+
+  const curSongId = (PL.activeId === plId && Q.active && Q.songs[Q.pos]) ? Q.songs[Q.pos].songId : null;
+  tracks.forEach((t, i) => {
+    const playing = curSongId === t.songId;
+    const cls = 'pl-track-row' + (playing ? ' pl-playing' : '');
+    const metaParts = [t.artist, t.album, t.year > 0 ? String(t.year) : ''].filter(Boolean);
+    html += `<div class="${cls}" data-idx="${i}" data-plid="${plId}" data-songid="${t.songId}">
+      <div class="tr-num">${i + 1}</div>
+      <div class="tr-play">&#9654;</div>
+      <div class="tr-info">
+        <div class="tr-title">${esc(t.title)}</div>
+        ${metaParts.length ? `<div class="tr-meta">${metaParts.map(esc).join(' · ')}</div>` : ''}
+      </div>
+      <div class="tr-dur">${fmt(t.secs)}</div>
+    </div>`;
+  });
+
+  tc.innerHTML = html;
+
+  const playAllBtn = tc.querySelector('.btn-play-pl');
+  if (playAllBtn) {
+    playAllBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      startPlaylistFromIndex(plId, 0, false);
+    });
+  }
+
+  tc.querySelectorAll('.pl-track-row').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      startPlaylistFromIndex(plId, parseInt(el.dataset.idx), false);
+    });
+  });
+}
+
+async function startPlaylistFromIndex(plId, startIdx, shuffle) {
+  if (!PL.cache[plId]) {
+    try { PL.cache[plId] = await api(`/api/playlists/${plId}/tracks`); }
+    catch(e) { showToast('Fehler: ' + e.message, 4000); return; }
+  }
+  const tracks = PL.cache[plId];
+  if (!tracks.length) { showToast('Playlist ist leer', 2000); return; }
+
+  let ordered = shuffle
+    ? [...tracks]
+    : [...tracks.slice(startIdx), ...tracks.slice(0, startIdx)];
+  if (shuffle) {
+    for (let i = ordered.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+    }
+  }
+
+  queueClear();
+  Q.active = true;
+  Q.pos = 0;
+  Q.songs = ordered.map(t => ({
+    songId: t.songId, title: t.title, artist: t.artist, albumId: t.albumId, secs: t.secs
+  }));
+
+  PL.activeId = plId;
+  document.querySelectorAll('.pl-row.pl-active').forEach(r => r.classList.remove('pl-active'));
+  const plRow = list.querySelector(`.pl-row[data-plid="${plId}"]`);
+  if (plRow) plRow.classList.add('pl-active');
+
+  await ensureAudioCtx();
+  playCurrent();
+  highlightPlaylistTrack(0, plId);
+}
+
+async function quickPlayPlaylist(plId, shuffle, btnEl) {
+  const origHtml = btnEl.innerHTML;
+  btnEl.innerHTML = '<span class="t-spin"></span>';
+
+  try {
+    if (!PL.cache[plId]) {
+      PL.cache[plId] = await api(`/api/playlists/${plId}/tracks`);
+    }
+    await startPlaylistFromIndex(plId, 0, shuffle);
+    const plInfo = PL.playlists.find(p => p.id === plId);
+    const name = plInfo ? plInfo.name : 'Playlist';
+    showToast(`♫ ${name}${shuffle ? ' (Shuffle)' : ''}`, 2500, true);
+  } catch(e) {
+    showToast('Fehler: ' + e.message, 5000);
+  }
+  btnEl.innerHTML = origHtml;
+}
+
+function highlightPlaylistTrack(pos, plId) {
+  if (plId == null) plId = PL.activeId;
+  if (plId == null) return;
+  const tc = $(`pltracks-${plSafeId(plId)}`);
+  if (!tc) return;
+  tc.querySelectorAll('.pl-track-row.pl-playing').forEach(el => el.classList.remove('pl-playing'));
+  const song = Q.songs[pos];
+  if (!song) return;
+  const el = tc.querySelector(`.pl-track-row[data-songid="${song.songId}"]`);
+  if (el) {
+    el.classList.add('pl-playing');
+    el.scrollIntoView({ behavior:'smooth', block:'nearest' });
+  }
+}
+
 function clearTracksCache() {
   const keepId = Q.active ? Q.songs[Q.pos]?.albumId : null;
   const kept   = keepId ? S.tracksCache[keepId] : null;
@@ -1652,9 +2010,12 @@ function bindAudioEvents() {
     }
     Q.pos++;
     if (Q.pos >= Q.songs.length) {
-      const extended = await queueExtend();
+      const extended = (S.mode !== 'playlists') && await queueExtend();
       if (!extended) {
+        PL.activeId = null;
         queueClear();
+        bgActive = false; bgAudioEl.pause();
+        releaseWakeLock();
         $('player-artist').textContent = 'Queue beendet';
         $('play-pause-btn').innerHTML  = '&#9654;';
         return;
@@ -1770,34 +2131,105 @@ function updateMediaSession(title, artist, albumId) {
   // Vorheriger Track
   navigator.mediaSession.setActionHandler('previoustrack', () => { if (Q.pos > 0) { Q.pos--; playCurrent(); } });
   // Stop (räumt alles auf)
-  navigator.mediaSession.setActionHandler('stop',          () => { audioEl.pause(); audioEl.src = ''; queueClear(); navigator.mediaSession.playbackState = 'none'; });
+  navigator.mediaSession.setActionHandler('stop',          () => { audioEl.pause(); audioEl.src = ''; queueClear(); bgActive = false; bgAudioEl.pause(); releaseWakeLock(); navigator.mediaSession.playbackState = 'none'; });
 }
 
 // playbackState bei play/pause-Events synchron halten
 audioEl.addEventListener('play',  () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing'; });
 audioEl.addEventListener('pause', () => { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';  });
 
+// ── iOS Background-Audio: Wake Lock ────────────────────────────────────────
+let wakeLock = null;
+
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => { wakeLock = null; });
+  } catch { /* low battery or hidden tab — ignore */ }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+}
+
+// ── iOS Background-Audio: EQ-Bypass via zweites Audio-Element ──────────────
+// Problem: createMediaElementSource() bindet audioEl permanent an den EQ-
+// AudioContext. iOS suspendiert AudioContexts beim Bildschirm-Sperren und
+// lässt sie nur per User-Geste resumen → kein Ton im Hintergrund.
+// Lösung: Ein zweites <audio>-Element ohne AudioContext übernimmt bei
+// Bildschirm-Aus und gibt bei Bildschirm-An zurück.
+const bgAudioEl = new Audio();
+let bgActive = false;
+
+function startBgAudio() {
+  if (!eqCtx || audioEl.paused || !audioEl.src) return;
+  bgAudioEl.src = audioEl.src;
+  bgAudioEl.currentTime = audioEl.currentTime;
+  bgAudioEl.volume = parseInt($('vol-slider').value) / 100;
+  bgAudioEl.play().catch(() => {});
+  bgActive = true;
+}
+
+function stopBgAudio() {
+  if (!bgActive) return;
+  if (!bgAudioEl.paused && bgAudioEl.currentTime > 0) {
+    audioEl.currentTime = bgAudioEl.currentTime;
+  }
+  bgAudioEl.pause();
+  bgAudioEl.removeAttribute('src');
+  bgAudioEl.load();
+  bgActive = false;
+  if (Q.active && audioEl.paused && audioEl.src) audioEl.play().catch(() => {});
+}
+
+bgAudioEl.addEventListener('ended', async () => {
+  if (!Q.active || !bgActive) return;
+  const finishedSong = Q.songs[Q.pos];
+  if (finishedSong?.songId) {
+    fetch(`/api/songs/${finishedSong.songId}/played`, { method: 'POST' });
+  }
+  Q.pos++;
+  if (Q.pos >= Q.songs.length) {
+    const extended = (S.mode !== 'playlists') && await queueExtend();
+    if (!extended) {
+      PL.activeId = null;
+      bgActive = false;
+      queueClear();
+      releaseWakeLock();
+      return;
+    }
+  }
+  const nextSong = Q.songs[Q.pos];
+  if (!nextSong) { bgActive = false; return; }
+  bgAudioEl.src = `/api/stream/${nextSong.songId}`;
+  bgAudioEl.play().catch(() => {});
+  audioEl.src = `/api/stream/${nextSong.songId}`;
+  updateMediaSession(nextSong.title, nextSong.artist, nextSong.albumId);
+});
+
 // ── AudioContext Hintergrund-Fix ────────────────────────────────────────────
-// Wenn der Tab wieder sichtbar wird: AudioContext ggf. fortsetzen
-// (Chrome/Safari suspendieren den AudioContext in Hintergrund-Tabs)
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && eqCtx && eqCtx.state === 'suspended') {
-    eqCtx.resume().then(() => {
-      if (Q.active && audioEl.paused && audioEl.src) audioEl.play().catch(() => {});
-    });
+  if (document.visibilityState === 'visible') {
+    if (eqCtx && eqCtx.state === 'suspended') eqCtx.resume().catch(() => {});
+    stopBgAudio();
+    if (Q.active && !audioEl.paused) requestWakeLock();
+  } else if (Q.active && !audioEl.paused && eqCtx) {
+    startBgAudio();
   }
 });
 
-// AudioContext-State überwachen → bei unerwartetem Suspend sofort melden
-// (wird auf manchen iOS-Versionen direkt nach Tab-Wechsel ausgelöst)
 function watchEqCtxState() {
   if (!eqCtx) return;
   eqCtx.onstatechange = () => {
-    if (eqCtx.state === 'suspended' && document.visibilityState === 'visible') {
-      eqCtx.resume().catch(() => {});
-    }
+    if (eqCtx.state === 'suspended') eqCtx.resume().catch(() => {});
   };
 }
+
+// Wake Lock bei play/pause steuern
+audioEl.addEventListener('play', () => { requestWakeLock(); });
+audioEl.addEventListener('pause', () => { if (!bgActive) releaseWakeLock(); });
+audioEl.addEventListener('emptied', () => { releaseWakeLock(); });
 
 // ── Pagination ─────────────────────────────────────────────────────────────
 function renderPagination() {
@@ -2205,6 +2637,127 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 init();
+
+// ── Spielstatus-Legende ───────────────────────────────────────────────────
+(function() {
+  // Berechnet die Farbe anhand der gleichen Logik wie psStyle(),
+  // aber mit direkten Parametern statt albumId.
+  // p = gespielt, c = ungespielte (Count=0); -1 = Gruppe fehlt im Album.
+  function computeStyle(n1p,n1c, n2p,n2c, n3p,n3c, n4p,n4c) {
+    const raw = [
+      { p: n1p, c: n1c, w: 0.60 },
+      { p: n2p, c: n2c, w: 0.20 },
+      { p: n3p, c: n3c, w: 0.12 },
+      { p: n4p, c: n4c, w: 0.08 },
+    ];
+    const groups = raw.filter(g => g.p >= 0).map(g => ({ played: g.p, total: g.p + g.c, weight: g.w }));
+    if (groups.length === 0) return 'background:hsl(120,90%,38%)';
+    if (groups.every(g => g.played === 0)) return 'background:red';
+    if (groups.every(g => g.played === g.total)) return 'background:hsl(120,90%,38%)';
+    const totalWeight = groups.reduce((s,g) => s + g.weight, 0);
+    let score = 0, inProgress = false;
+    groups.forEach(g => {
+      const comp = g.played / g.total;
+      score += comp * g.weight / totalWeight;
+      if (comp > 0 && comp < 1) inProgress = true;
+    });
+    function scoreToColor(s) {
+      const hue  = Math.round(s * 58);
+      const lght = Math.round(28 + s * 16);
+      return `hsl(${hue},92%,${lght}%)`;
+    }
+    const base = scoreToColor(score);
+    if (inProgress) {
+      const next = (score + 0.12 >= 1) ? 'hsl(120,90%,38%)' : scoreToColor(score + 0.12);
+      return `background:repeating-linear-gradient(45deg,${base},${base} 5px,${next} 5px,${next} 10px)`;
+    }
+    return `background:${base}`;
+  }
+
+  function scoreOf(n1p,n1c, n2p,n2c, n3p,n3c, n4p,n4c) {
+    const raw = [
+      { p: n1p, c: n1c, w: 0.60 }, { p: n2p, c: n2c, w: 0.20 },
+      { p: n3p, c: n3c, w: 0.12 }, { p: n4p, c: n4c, w: 0.08 },
+    ];
+    const groups = raw.filter(g => g.p >= 0).map(g => ({ played: g.p, total: g.p + g.c, weight: g.w }));
+    if (!groups.length || groups.every(g => g.played === 0)) return 0;
+    if (groups.every(g => g.played === g.total)) return 1;
+    const tw = groups.reduce((s,g) => s + g.weight, 0);
+    return groups.reduce((s,g) => s + (g.played/g.total)*g.weight/tw, 0);
+  }
+
+  // Symboldarstellung einer Gruppe: — = fehlt, 0/n = nichts, x/n = teilweise, n/n = alle
+  function cell(p, c) {
+    if (p < 0) return '<span style="color:#555">—</span>';
+    const t = p + c;
+    if (p === 0) return `<span style="color:#e55">0/${t}</span>`;
+    if (p === t) return `<span style="color:#5d5">&#10003;&nbsp;${t}/${t}</span>`;
+    return `<span style="color:#fa0">${p}/${t}</span>`;
+  }
+
+  // Zustände pro Gruppe: 0=fehlt, 1=nichts gespielt, 2=teilweise, 3=alles gespielt
+  // (p, c): fehlt=(-1,-1), nichts=(0,2), teilweise=(1,1), alles=(2,0)
+  const STATE_DATA = [
+    { p: -1, c: -1 },
+    { p:  0, c:  2 },
+    { p:  1, c:  1 },
+    { p:  2, c:  0 },
+  ];
+
+  function buildTable() {
+    const tbody = document.getElementById('ps-legend-body');
+    tbody.innerHTML = '';
+
+    const rows = [];
+    for (let s1 = 0; s1 < 4; s1++)
+    for (let s2 = 0; s2 < 4; s2++)
+    for (let s3 = 0; s3 < 4; s3++)
+    for (let s4 = 0; s4 < 4; s4++) {
+      if (s1 === 0 && s2 === 0 && s3 === 0 && s4 === 0) continue; // alle absent = unmöglich
+      const [g1,g2,g3,g4] = [STATE_DATA[s1],STATE_DATA[s2],STATE_DATA[s3],STATE_DATA[s4]];
+      const score = scoreOf(g1.p,g1.c, g2.p,g2.c, g3.p,g3.c, g4.p,g4.c);
+      rows.push({ g1,g2,g3,g4, score,
+        style: computeStyle(g1.p,g1.c, g2.p,g2.c, g3.p,g3.c, g4.p,g4.c) });
+    }
+
+    rows.sort((a, b) => a.score - b.score);
+
+    function codeOf(g1,g2,g3,g4) {
+      function s(p,c) {
+        const t=p+c;
+        if(p<0||t===0) return '<span style="color:#555">–</span>';
+        if(p===0)      return '<span style="color:#e55">N</span>';
+        if(p===t)      return '<span style="color:#5d5">A</span>';
+        return '<span style="color:#fa8">T</span>';
+      }
+      const sep='<span style="color:#555">-</span>';
+      return [s(g1.p,g1.c),s(g2.p,g2.c),s(g3.p,g3.c),s(g4.p,g4.c)].join(sep);
+    }
+
+    rows.forEach(({ g1,g2,g3,g4, score, style }) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        `<td><span class="ps-swatch" style="${style}"></span></td>` +
+        `<td class="ps-score">${codeOf(g1,g2,g3,g4)}</td>` +
+        `<td>${cell(g1.p,g1.c)}</td><td>${cell(g2.p,g2.c)}</td>` +
+        `<td>${cell(g3.p,g3.c)}</td><td>${cell(g4.p,g4.c)}</td>` +
+        `<td class="ps-score">${(score*100).toFixed(0)}%</td>`;
+      tbody.appendChild(tr);
+    });
+  }
+
+  document.getElementById('ps-legend-btn').addEventListener('click', () => {
+    buildTable();
+    document.getElementById('ps-legend-overlay').classList.add('open');
+  });
+  document.getElementById('ps-legend-close').addEventListener('click', () => {
+    document.getElementById('ps-legend-overlay').classList.remove('open');
+  });
+  document.getElementById('ps-legend-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget)
+      e.currentTarget.classList.remove('open');
+  });
+})();
 </script>
 </body>
 </html>

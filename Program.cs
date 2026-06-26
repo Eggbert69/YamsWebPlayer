@@ -532,7 +532,7 @@ app.MapGet("/api/albums/{id:int}", async (int id) =>
         SELECT s.CDSongId,
                s.CDSongTrackNum,
                RTRIM(s.CDSongTitel),
-               s.CDSongSecs,
+               ISNULL(DATEDIFF(SECOND, '00:00:00', s.CDSongDauer), 0) AS CDSongSecs,
                s.CDSongNote,
                RTRIM(ISNULL(sa.CDArtistName, a.CDArtistName)) AS SongArtist,
                RTRIM(ISNULL(s.CDSongOrg, 'T')) AS CDSongOrg,
@@ -956,6 +956,68 @@ app.MapGet("/api/albums/by-year", async (
     }
 
     return Results.Json(new { total = albums.Count, albums });
+});
+
+// ── GET /api/playlists ─────────────────────────────────────────────────────────
+// Liefert alle gespeicherten Playlists (aus PlaylistClaude-Tabelle).
+app.MapGet("/api/playlists", async () =>
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SELECT p.PlaylistId,
+               RTRIM(p.PlaylistName) AS Name,
+               COUNT(d.CDSongId)     AS TrackCount
+        FROM   PlaylistClaude p
+        LEFT JOIN PlaylistDetailClaude d ON p.PlaylistId = d.PlaylistId
+        GROUP BY p.PlaylistId, p.PlaylistName
+        ORDER BY p.PlaylistName";
+    var list = new List<object>();
+    await using var r = await cmd.ExecuteReaderAsync();
+    while (await r.ReadAsync())
+        list.Add(new { id = r.GetInt32(0), name = r.GetString(1).Trim(), trackCount = r.GetInt32(2) });
+    return Results.Json(list);
+});
+
+// ── GET /api/playlists/{id}/tracks ────────────────────────────────────────────
+// Liefert die Songs einer Playlist mit Metadaten für Player und Queue.
+app.MapGet("/api/playlists/{id:int}/tracks", async (int id) =>
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SELECT d.CDSongId,
+               d.SongNr,
+               RTRIM(ISNULL(d.CDSongTitel,''))    AS Title,
+               RTRIM(ISNULL(d.CDArtistSort,''))   AS Artist,
+               RTRIM(ISNULL(d.CDHeadTitel,''))     AS Album,
+               ISNULL(d.CDSongSecs, 0)            AS Secs,
+               ISNULL(d.CDSongNote, 0)             AS Note,
+               ISNULL(d.CDHeadJahr, 0)             AS Year,
+               s.CDHeadId
+        FROM   PlaylistDetailClaude d
+        JOIN   CDSong s ON d.CDSongId = s.CDSongId
+        WHERE  d.PlaylistId = @Id
+        ORDER BY d.SongNr";
+    cmd.Parameters.AddWithValue("@Id", id);
+    var tracks = new List<object>();
+    await using var r = await cmd.ExecuteReaderAsync();
+    while (await r.ReadAsync())
+        tracks.Add(new
+        {
+            songId  = Convert.ToInt32(r[0]),
+            songNr  = Convert.ToInt32(r[1]),
+            title   = r.GetString(2).Trim(),
+            artist  = r.GetString(3).Trim(),
+            album   = r.GetString(4).Trim(),
+            secs    = Convert.ToInt32(r[5]),
+            note    = Convert.ToInt32(r[6]),
+            year    = Convert.ToInt32(r[7]),
+            albumId = r.IsDBNull(8) ? 0 : Convert.ToInt32(r[8]),
+        });
+    return Results.Json(tracks);
 });
 
 // ── Server starten ─────────────────────────────────────────────────────────────
