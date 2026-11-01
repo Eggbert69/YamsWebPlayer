@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0c0e13">
+<title>YAMS Fernbedienung</title>
+<style>
+  :root{ --bg:#0c0e13; --card:#161a22; --line:#262c38; --fg:#eef1f6; --dim:#8a93a3;
+         --good:#2e9e52;
+         --nt1:#22c55e; --nt2:#84cc16; --nt3:#eab308; --nt4:#f97316; --nt5:#ef4444; }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+       padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+       user-select:none;-webkit-user-select:none}
+  .wrap{max-width:520px;margin:0 auto;padding:14px 14px 28px}
+  .top{display:flex;align-items:center;gap:8px;font-size:15px;color:var(--dim);margin-bottom:12px}
+  .dot{width:11px;height:11px;border-radius:50%;background:#b33;transition:background .3s}
+  .dot.on{background:var(--good)}
+  .np{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);
+      border-radius:16px;padding:14px;margin-bottom:14px}
+  .cover{width:78px;height:78px;border-radius:10px;background:#0f1620;object-fit:cover;flex:0 0 auto}
+  .meta{min-width:0}
+  .title{font-size:22px;font-weight:700;line-height:1.12;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .artist{font-size:16px;color:#cfd5df;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .album{font-size:14px;color:var(--dim);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .noteline{display:flex;align-items:center;gap:10px;justify-content:center;flex-wrap:wrap;
+            background:var(--card);border:1px solid var(--line);border-radius:14px;
+            padding:12px;margin-bottom:16px;min-height:52px}
+  .note{font-weight:800;font-size:22px}
+  .note-old{opacity:.5;text-decoration:line-through}
+  .arrow{color:var(--dim);font-size:20px}
+  .pill{font-size:13px;font-weight:700;color:#a7e03a;background:#16321c;border:1px solid #2f6b35;border-radius:999px;padding:3px 10px}
+  .nt1{color:var(--nt1)}.nt2{color:var(--nt2)}.nt3{color:var(--nt3)}.nt4{color:var(--nt4)}.nt5{color:var(--nt5)}
+  .label{font-size:13px;color:var(--dim);margin:2px 2px 8px}
+  .rate{display:flex;gap:10px;margin-bottom:12px}
+  button{font-family:inherit;color:var(--fg);background:var(--card);border:1px solid var(--line);
+         border-radius:14px;font-weight:700;padding:0;cursor:pointer;
+         transition:transform .05s ease, background .15s}
+  button:active{transform:scale(.96);background:#1f2530}
+  .rate button{flex:1;height:66px;font-size:21px}
+  .rate .up{border-color:#2f6b35}
+  .rate .down{border-color:#6b2f2f}
+  .nums{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:20px}
+  .nums button{height:58px;font-size:22px}
+  .transport{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .transport button{height:74px;font-size:27px}
+  .transport .stop{border-color:#6b2f2f}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><span class="dot" id="dot"></span><span id="status">verbinde…</span></div>
+
+  <div class="np">
+    <img class="cover" id="cover" alt="">
+    <div class="meta">
+      <div class="title" id="title">&#8212;</div>
+      <div class="artist" id="artist"></div>
+      <div class="album" id="album"></div>
+    </div>
+  </div>
+
+  <div class="noteline" id="noteline"><span class="note" id="note"></span></div>
+
+  <div class="label">Bewerten &#183; hoch = besser</div>
+  <div class="rate">
+    <button class="up"   onpointerdown="send('note:up')">&#9650; besser</button>
+    <button class="down" onpointerdown="send('note:down')">&#9660; schlechter</button>
+  </div>
+  <div class="nums">
+    <button onpointerdown="send('note:set:1')">1</button>
+    <button onpointerdown="send('note:set:2')">2</button>
+    <button onpointerdown="send('note:set:3')">3</button>
+    <button onpointerdown="send('note:set:4')">4</button>
+    <button onpointerdown="send('note:set:5')">5</button>
+  </div>
+
+  <div class="label">Wiedergabe</div>
+  <div class="transport">
+    <button onpointerdown="send('prev')">&#9198;</button>
+    <button onpointerdown="send('playpause')">&#9199;</button>
+    <button onpointerdown="send('next')">&#9197;</button>
+    <button class="stop" onpointerdown="send('pause')">&#9209;</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let wakeLock = null;
+
+async function send(cmd) {
+  try { await fetch('/api/remote/command', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ cmd }) }); }
+  catch {}
+  setTimeout(poll, 150);   // Zustand gleich nach dem Kommando aktualisieren
+}
+
+function noteSpan(n, cls) {
+  return n > 0 ? `<span class="note nt${n} ${cls||''}">Note ${n}</span>` : `<span class="${cls||''}">&#8212;</span>`;
+}
+
+function render(st) {
+  const on = st && st.online;
+  $('dot').classList.toggle('on', !!on);
+  $('status').textContent = on ? 'verbunden' : 'kein laufender Player';
+  const np = st && st.nowPlaying;
+  if (np) {
+    $('title').textContent  = np.title  || '—';
+    $('artist').textContent = np.artist || '';
+    $('album').textContent  = np.album  || '';
+    if (np.headId) $('cover').src = '/api/cover/' + np.headId; else $('cover').removeAttribute('src');
+  } else {
+    $('title').textContent = '—'; $('artist').textContent = ''; $('album').textContent = '';
+    $('cover').removeAttribute('src');
+  }
+  const stored = np ? (np.note || 0) : 0;
+  const prop   = st ? st.proposal : null;
+  if (prop != null && prop !== stored) {
+    $('noteline').innerHTML = `${noteSpan(stored,'note-old')}<span class="arrow">&#8594;</span>${noteSpan(prop)}<span class="pill">&#10003; vorgemerkt</span>`;
+  } else {
+    $('noteline').innerHTML = noteSpan(stored);
+  }
+}
+
+async function poll() {
+  try {
+    const st = await (await fetch('/api/remote/state', { cache:'no-store' })).json();
+    render(st);
+  } catch {
+    $('dot').classList.remove('on');
+    $('status').textContent = 'offline – neuer Versuch…';
+  }
+}
+
+async function keepAwake() {
+  try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { keepAwake(); poll(); }
+});
+
+keepAwake();
+poll();
+setInterval(poll, 1000);
+</script>
+</body>
+</html>

@@ -628,6 +628,100 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
 .ps-status{font-size:15px}
 .ps-desc{text-align:left!important;color:#bbb}
 .ps-score{font-family:monospace;color:#999}
+/* ════════════════════════════════════════════════════════════════════════
+ * VERLAUF + VOLLBILD-ANSICHT ("SCREENSAVER") – Erweiterungen
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* Display-Schrift NUR für die Vollbildansicht. Lokal gehostet (offlinefähig);
+   fällt automatisch auf eine schmale System-Schrift zurück, falls die Dateien
+   fehlen. */
+@font-face{font-family:'Barlow Condensed';font-weight:600;font-style:normal;
+  font-display:swap;src:url('/fonts/BarlowCondensed-600.woff2') format('woff2')}
+@font-face{font-family:'Barlow Condensed';font-weight:700;font-style:normal;
+  font-display:swap;src:url('/fonts/BarlowCondensed-700.woff2') format('woff2')}
+@font-face{font-family:'Barlow Condensed';font-weight:800;font-style:normal;
+  font-display:swap;src:url('/fonts/BarlowCondensed-800.woff2') format('woff2')}
+
+/* YAMS-Note farbig (1 = beste … 5 = schwächste) – für Verlauf und Vollbild */
+.nt-1{color:#22c55e}.nt-2{color:#84cc16}.nt-3{color:var(--gold)}
+.nt-4{color:var(--orange)}.nt-5{color:var(--danger)}
+
+/* ── Modus-Button "Verlauf" ── */
+.mode-btn[data-mode="history"].active{color:#fff;background:#0ea5a3;border-color:#0ea5a3}
+
+/* ── Verlauf-Ansicht ── */
+#history-wrap{display:none;flex-direction:column;gap:1px;padding:4px 0}
+#history-wrap.visible{display:flex}
+.hist-toolbar{display:flex;align-items:center;gap:10px;padding:10px 16px;color:var(--muted);font-size:12px}
+.hist-toolbar .spacer{flex:1}
+.hist-day{position:sticky;top:0;z-index:1;background:var(--bg);
+  padding:12px 16px 5px;font-size:12px;font-weight:700;color:var(--accent-h);letter-spacing:.02em}
+.hist-row{display:grid;grid-template-columns:48px 40px 1fr auto;align-items:center;
+  gap:12px;padding:6px 16px;border-radius:8px;cursor:pointer}
+.hist-row:hover{background:var(--card-h)}
+.hist-time{font-variant-numeric:tabular-nums;color:var(--muted);font-size:12px}
+.hist-cover{width:40px;height:40px;border-radius:5px;overflow:hidden;background:var(--bg2)}
+.hist-cover img{width:100%;height:100%;object-fit:cover;display:block}
+.hist-main{min-width:0}
+.hist-song{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist-sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist-meta{display:flex;align-items:center;gap:14px;color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+.hist-note{font-weight:700}
+.hist-play{color:var(--play);font-size:14px}
+.hist-more{margin:14px auto;padding:8px 20px}
+
+/* ── Vollbild-Ansicht ("Screensaver") ── */
+#screensaver{position:fixed;inset:0;z-index:9999;display:none;color:#fff;overflow:hidden;
+  background:#000;font-family:'Barlow Condensed','Arial Narrow',system-ui,sans-serif}
+#screensaver.open{display:block}
+/* Unscharfes Cover als Ambient-Hintergrund – der Screen glüht in der Albumfarbe */
+#ss-bg{position:absolute;inset:-8%;background-size:cover;background-position:center;
+  filter:blur(60px) saturate(1.3) brightness(.55);transform:scale(1.1);transition:background-image .6s ease}
+#ss-scrim{position:absolute;inset:0;
+  background:radial-gradient(130% 100% at 20% 30%,transparent 0,rgba(0,0,0,.55) 100%),
+             linear-gradient(to top,rgba(0,0,0,.85),transparent 55%)}
+#ss-content{position:relative;height:100%;display:flex;flex-direction:column;padding:clamp(20px,4vw,64px)}
+#ss-clock{position:absolute;top:clamp(16px,3vw,48px);right:clamp(20px,4vw,64px);
+  font-weight:600;font-size:clamp(2rem,5vw,5rem);line-height:1;color:rgba(255,255,255,.92);font-variant-numeric:tabular-nums}
+#ss-hero{flex:1;display:flex;align-items:center;gap:clamp(20px,4vw,64px);min-height:0}
+#ss-cover{flex-shrink:0;width:min(38vh,38vw);aspect-ratio:1;border-radius:12px;overflow:hidden;
+  background:rgba(255,255,255,.06);box-shadow:0 20px 70px rgba(0,0,0,.6)}
+#ss-cover img{width:100%;height:100%;object-fit:cover;display:block}
+#ss-text{min-width:0;flex:1}
+#ss-song{font-weight:800;font-size:clamp(2.5rem,7vw,9rem);line-height:.95;letter-spacing:-.01em;
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+#ss-artist{font-weight:600;font-size:clamp(1.5rem,4vw,4.5rem);line-height:1.05;color:rgba(255,255,255,.82);
+  margin-top:.12em;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#ss-albumline{display:flex;align-items:center;gap:.7em;margin-top:.5em;
+  font-size:clamp(1rem,2vw,2rem);color:rgba(255,255,255,.65)}
+#ss-note{font-weight:700;letter-spacing:.06em}
+#ss-foot{flex-shrink:0}
+#ss-bar{height:6px;border-radius:999px;background:rgba(255,255,255,.18);overflow:hidden}
+#ss-bar-fill{height:100%;width:0;background:var(--play);border-radius:999px}
+#ss-times{display:flex;justify-content:space-between;margin-top:.5em;
+  font-size:clamp(1rem,2vw,1.8rem);color:rgba(255,255,255,.8);font-variant-numeric:tabular-nums}
+#ss-next{margin-top:.8em;font-size:clamp(.9rem,1.6vw,1.4rem);color:rgba(255,255,255,.55);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#ss-next b{color:rgba(255,255,255,.82);font-weight:600}
+#ss-close{position:absolute;bottom:clamp(16px,3vw,40px);right:clamp(20px,4vw,64px);
+  width:46px;height:46px;border-radius:50%;background:rgba(255,255,255,.12);color:#fff;font-size:20px;
+  opacity:.45;transition:opacity .2s}
+#ss-close:hover{opacity:1}
+#ss-open-btn{font-size:16px;line-height:1}
+/* Hochkant / schmal: Block stapeln, zentriert */
+@media (max-aspect-ratio:1/1){
+  #ss-hero{flex-direction:column;justify-content:center;text-align:center}
+  #ss-artist{white-space:normal}
+  #ss-cover{width:min(42vh,62vw)}
+  #ss-albumline{justify-content:center}
+}
+@media (prefers-reduced-motion:reduce){#ss-bg{transition:none}}
+/* Neubewertung: Vorschlag im Screensaver sichtbar ("Note 3 → Note 2" + vorgemerkt) */
+#ss-note .ss-note-old{opacity:.5;text-decoration:line-through;text-decoration-thickness:.08em}
+#ss-note .ss-note-arrow{opacity:.55;margin:0 .15em}
+#ss-note .ss-note-new{font-size:1.5em;font-weight:800}
+#ss-note .ss-note-pill{display:inline-block;margin-left:.5em;padding:.08em .5em;border-radius:999px;
+  font-size:.62em;font-weight:700;letter-spacing:.04em;color:#a7e03a;background:#16321c;border:1px solid #2f6b35;vertical-align:middle}
 </style>
 </head>
 <body>
@@ -784,6 +878,7 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
     <button class="mode-btn" data-mode="best">&#9733; Beste je Jahr</button>
     <button class="mode-btn" data-mode="report">&#9734; All Time Best</button>
     <button class="mode-btn" data-mode="playlists">&#9835; Playlists</button>
+    <button class="mode-btn" data-mode="history">&#128336; Verlauf</button>
   </div>
   <span id="result-count"></span>
   <div class="spacer"></div>
@@ -809,6 +904,7 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
   <div id="empty"><div class="icon">&#128191;</div><div>Keine Alben gefunden</div></div>
   <div id="album-list"></div>
   <div id="pagination"></div>
+  <div id="history-wrap"></div>
 </div>
 
 </div><!-- #app -->
@@ -833,6 +929,7 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
     <span>&#128266;</span>
     <input id="vol-slider" type="range" min="0" max="100" value="80">
   </div>
+  <button id="ss-open-btn" title="Vollbild-Ansicht (Screensaver)">&#9974;</button>
   <button id="eq-btn" title="Equalizer">EQ</button>
   <div id="player-badge">&#9835; Web</div>
 </div>
@@ -878,6 +975,32 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
     <div class="genre-row" id="genre-groups-by"><span class="genre-row-label">GRUPPE</span></div>
     <div class="genre-row" id="genre-chips-by"><span class="genre-row-label">EINZELN</span></div>
   </div>
+</div>
+
+<!-- Vollbild-Ansicht ("Screensaver"): großes Cover + Song + Artist, Uhr, Fortschritt, nächster Titel -->
+<div id="screensaver">
+  <div id="ss-bg"></div>
+  <div id="ss-scrim"></div>
+  <div id="ss-content">
+    <div id="ss-clock">--:--</div>
+    <div id="ss-hero">
+      <div id="ss-cover"><img id="ss-cover-img" alt=""></div>
+      <div id="ss-text">
+        <div id="ss-song">&#8212;</div>
+        <div id="ss-artist"></div>
+        <div id="ss-albumline">
+          <span id="ss-note"></span>
+          <span id="ss-album"></span>
+        </div>
+      </div>
+    </div>
+    <div id="ss-foot">
+      <div id="ss-bar"><div id="ss-bar-fill"></div></div>
+      <div id="ss-times"><span id="ss-cur">0:00</span><span id="ss-rem"></span></div>
+      <div id="ss-next"></div>
+    </div>
+  </div>
+  <button id="ss-close" title="Schließen (Esc)">&#10005;</button>
 </div>
 
 <div id="toast"></div>
@@ -1060,6 +1183,7 @@ async function init() {
   bindAudioEvents();
   // Lautstärke aus HTML-Slider-Startwert setzen (80% Standard)
   audioEl.volume = parseInt($('vol-slider').value) / 100;
+  rcStart();   // Fernsteuerungs-Empfänger (iPhone-Remote + optional Gamepad) starten
 }
 
 async function loadStats() {
@@ -1317,12 +1441,21 @@ function switchMode(mode) {
   const byp = $('byyear-panel');
   const ss  = $('sort-section');
   const yn  = $('year-nav');
+  const isHistory = mode === 'history';
+
+  // Verlauf blendet die Albumliste aus und zeigt stattdessen die Historie
+  list.style.display            = isHistory ? 'none' : '';
+  $('pagination').style.display = isHistory ? 'none' : '';
+  $('history-wrap').classList.toggle('visible', isHistory);
+  $('result-count').style.display = isHistory ? 'none' : '';
+  if (isHistory) { $('loading').style.display = 'none'; $('empty').style.display = 'none'; }
+
   if (mode === 'all') {
     sp.style.display  = '';
     ss.style.display  = '';
     byp.classList.remove('visible', 'report-mode', 'best-mode');
     yn.classList.remove('visible');
-  } else if (mode === 'playlists') {
+  } else if (mode === 'playlists' || isHistory) {
     sp.style.display  = 'none';
     ss.style.display  = 'none';
     byp.classList.remove('visible', 'report-mode', 'best-mode');
@@ -1337,6 +1470,7 @@ function switchMode(mode) {
   }
   if (mode === 'all') loadAlbums();
   else if (mode === 'playlists') loadPlaylists();
+  else if (isHistory) loadHistory();
   else loadByYear();
 }
 
@@ -1622,6 +1756,9 @@ async function queueBuildFrom(albumId, startSongId) {
     artist:  t.songArtist || album.artist,
     albumId,
     secs:    t.secs || 0,
+    note:    t.rating || 0,        // für die Note in der Vollbildansicht
+    albumTitle: album.title,
+    year:    album.year || 0,
   }));
 }
 
@@ -1923,7 +2060,10 @@ async function startPlaylistFromIndex(plId, startIdx, shuffle) {
   Q.active = true;
   Q.pos = 0;
   Q.songs = ordered.map(t => ({
-    songId: t.songId, title: t.title, artist: t.artist, albumId: t.albumId, secs: t.secs
+    songId: t.songId, title: t.title, artist: t.artist, albumId: t.albumId, secs: t.secs,
+    note: t.note || 0,          // Note für die Vollbildansicht (Screensaver)
+    albumTitle: t.album || '',  // Albumtitel für die Vollbildansicht
+    year: t.year || 0,
   }));
 
   PL.activeId = plId;
@@ -2039,6 +2179,7 @@ function bindAudioEvents() {
 
   // Fortschrittsbalken aktualisieren
   audioEl.addEventListener('timeupdate', () => {
+    if (SS.open) ssProgress();
     if (!audioEl.duration || isNaN(audioEl.duration)) return;
     const pct = (audioEl.currentTime / audioEl.duration) * 100;
     $('progress-bar').value = pct;
@@ -2092,6 +2233,7 @@ function updatePlayerBar(title, artist, albumId, pos, total) {
     ? `<img src="/api/cover/${albumId}" onerror="this.style.display='none';this.parentElement.innerHTML='&#127911;'" alt="">`
     : '&#127911;';
   updateMediaSession(title, artist, albumId);
+  if (SS.open) ssSync();
 }
 
 // ── Media Session API ─────────────────────────────────────────────────────
@@ -2271,6 +2413,26 @@ function bindEvents() {
   document.querySelectorAll('.mode-btn').forEach(b => b.addEventListener('click', () => {
     if (b.dataset.mode !== S.mode) switchMode(b.dataset.mode);
   }));
+
+  // Vollbild-Ansicht ("Screensaver")
+  $('ss-open-btn').addEventListener('click', openScreensaver);
+  $('ss-close').addEventListener('click', closeScreensaver);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && SS.open) closeScreensaver(); });
+  document.addEventListener('fullscreenchange', () => {
+    // Verlässt der Browser das Vollbild (z. B. per F11/Esc), Ansicht mit schließen
+    if (!document.fullscreenElement && SS.open) closeScreensaver();
+  });
+
+  // Verlauf: Klicks per Delegation (überlebt Re-Renders der Liste)
+  $('history-wrap').addEventListener('click', e => {
+    if (e.target.closest('#hist-more'))  { histLoadMore(); return; }
+    if (e.target.closest('#hist-clear')) { clearHistory();  return; }
+    const row = e.target.closest('.hist-row');
+    if (row) {
+      const it = HIST.items[+row.dataset.idx];
+      if (it) dispatchToPlayer(it.songId, it.title, it.artist, it.albumId);
+    }
+  });
 
   // Genre-Popup
   $('genre-btn-main').addEventListener('click', e => { e.stopPropagation(); openGenrePopup('main', e.currentTarget); });
@@ -2758,6 +2920,264 @@ init();
       e.currentTarget.classList.remove('open');
   });
 })();
+// ════════════════════════════════════════════════════════════════════════════
+// VERLAUF (History)
+// ════════════════════════════════════════════════════════════════════════════
+// Zustand der Verlaufsansicht. items sammelt alle bisher geladenen Einträge,
+// offset/limit steuern das "Mehr laden", done=true wenn keine weiteren folgen.
+const HIST = { items: [], offset: 0, limit: 200, done: false };
+
+// YAMS-Note farbig (1 = beste … 5 = schwächste). Leere Note → nichts anzeigen.
+function noteHtml(n) {
+  return n > 0 ? `<span class="nt-${n}" title="YAMS-Note">Note ${n}</span>` : '';
+}
+
+// Tagesüberschrift relativ zu heute: "Heute" / "Gestern" / ausgeschriebenes Datum.
+function dayLabel(d) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const day   = new Date(d); day.setHours(0, 0, 0, 0);
+  const diff  = Math.round((today - day) / 86400000);
+  if (diff === 0) return 'Heute';
+  if (diff === 1) return 'Gestern';
+  return day.toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+// Verlauf neu laden (erste Seite).
+async function loadHistory() {
+  HIST.items = []; HIST.offset = 0; HIST.done = false;
+  $('history-wrap').innerHTML = '<div class="hist-toolbar">Lade Verlauf…</div>';
+  await histFetch();
+}
+
+// Nächste Seite nachladen und an die bestehende Liste anhängen.
+async function histFetch() {
+  try {
+    const batch = await api(`/api/history?limit=${HIST.limit}&offset=${HIST.offset}`);
+    HIST.items.push(...batch);
+    HIST.offset += batch.length;
+    HIST.done = batch.length < HIST.limit;
+    renderHistory();
+  } catch (e) {
+    $('history-wrap').innerHTML =
+      `<div class="hist-toolbar">Verlauf konnte nicht geladen werden: ${esc(e.message)}</div>`;
+  }
+}
+
+function histLoadMore() { if (!HIST.done) histFetch(); }
+
+async function clearHistory() {
+  if (!confirm('Gesamten Abspielverlauf löschen? Die Spielzähler der Songs bleiben erhalten.')) return;
+  try {
+    const r = await fetch('/api/history', { method: 'DELETE' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    showToast('Verlauf geleert', 2000);
+    loadHistory();
+  } catch (e) { showToast('Fehler: ' + e.message, 4000); }
+}
+
+function renderHistory() {
+  if (!HIST.items.length) {
+    $('history-wrap').innerHTML =
+      '<div class="hist-toolbar">Noch nichts gespielt. Sobald du einen Song zu Ende hörst, erscheint er hier.</div>';
+    return;
+  }
+  let html = `<div class="hist-toolbar"><span>${HIST.items.length} Einträge</span>
+      <span class="spacer"></span>
+      <button class="btn secondary" id="hist-clear">Verlauf leeren</button></div>`;
+  let lastDay = '';
+  HIST.items.forEach((it, idx) => {
+    const d  = new Date(it.playedAt);
+    const dl = dayLabel(d);
+    if (dl !== lastDay) { html += `<div class="hist-day">${dl}</div>`; lastDay = dl; }
+    const hhmm = d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    const sub  = esc(it.artist)
+               + (it.albumTitle ? ` — ${esc(it.albumTitle)}` : '')
+               + (it.year ? ` (${it.year})` : '');
+    html += `
+      <div class="hist-row" data-idx="${idx}">
+        <div class="hist-time">${hhmm}</div>
+        <div class="hist-cover"><img src="/api/cover/${it.albumId}" loading="lazy"
+             onerror="this.style.display='none'" alt=""></div>
+        <div class="hist-main">
+          <div class="hist-song">${esc(it.title)}</div>
+          <div class="hist-sub">${sub}</div>
+        </div>
+        <div class="hist-meta">
+          ${noteHtml(it.note)}
+          <span>${fmt(it.secs)}</span>
+          ${it.count > 0 ? `<span title="Insgesamt gespielt">${it.count}×</span>` : ''}
+          <span class="hist-play" title="Abspielen">&#9654;</span>
+        </div>
+      </div>`;
+  });
+  if (!HIST.done) html += '<button class="btn secondary hist-more" id="hist-more">Mehr laden</button>';
+  $('history-wrap').innerHTML = html;
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// VOLLBILD-ANSICHT ("Screensaver")
+// ════════════════════════════════════════════════════════════════════════════
+// open = Ansicht sichtbar; clock = Interval-Handle für die Uhr.
+const SS = { open: false, clock: null };
+
+async function openScreensaver() {
+  SS.open = true;
+  $('screensaver').classList.add('open');
+  ssSync();
+  ssProgress();
+  ssClockTick();
+  SS.clock = setInterval(ssClockTick, 1000);
+  // Echtes Browser-Vollbild anfordern (läuft im Klick-Gesture-Kontext).
+  try { await document.documentElement.requestFullscreen(); } catch {}
+}
+
+function closeScreensaver() {
+  SS.open = false;
+  $('screensaver').classList.remove('open');
+  if (SS.clock) { clearInterval(SS.clock); SS.clock = null; }
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+
+// Cover, Song, Artist, Note, Album und "Nächster Titel" aus der aktuellen Queue.
+function ssSync() {
+  if (!SS.open) return;
+  const s = Q.songs[Q.pos];
+  if (!s) {
+    $('ss-song').textContent   = 'Kein Song';
+    $('ss-artist').textContent = '';
+    $('ss-note').innerHTML     = '';
+    $('ss-album').textContent  = '';
+    $('ss-next').innerHTML     = '';
+    $('ss-cover-img').removeAttribute('src');
+    $('ss-bg').style.backgroundImage = 'none';
+    return;
+  }
+  $('ss-song').textContent   = s.title  || '';
+  $('ss-artist').textContent = s.artist || '';
+  $('ss-note').innerHTML     = ssNoteMarkup(s.note || 0, RC.songId === s.songId ? RC.proposal : null);
+  $('ss-album').textContent  = [s.albumTitle, s.year > 0 ? s.year : ''].filter(Boolean).join('   ');
+  const cover = s.albumId ? `/api/cover/${s.albumId}` : '';
+  if (cover) { $('ss-cover-img').src = cover; $('ss-bg').style.backgroundImage = `url('${cover}')`; }
+  else       { $('ss-cover-img').removeAttribute('src'); $('ss-bg').style.backgroundImage = 'none'; }
+  const nxt = Q.songs[Q.pos + 1];
+  $('ss-next').innerHTML = nxt ? `Als Nächstes&nbsp; <b>${esc(nxt.title)}</b> — ${esc(nxt.artist)}` : '';
+}
+
+// Fortschrittsbalken + abgelaufene/verbleibende Zeit aus dem Audio-Element.
+function ssProgress() {
+  if (!SS.open) return;
+  const dur = audioEl.duration, cur = audioEl.currentTime || 0;
+  if (dur && !isNaN(dur)) {
+    $('ss-bar-fill').style.width = (cur / dur * 100) + '%';
+    $('ss-cur').textContent = fmt(Math.floor(cur));
+    $('ss-rem').textContent = '-' + fmt(Math.max(0, Math.ceil(dur - cur)));
+  } else {
+    $('ss-bar-fill').style.width = '0%';
+    $('ss-cur').textContent = fmt(Math.floor(cur));
+    $('ss-rem').textContent = '';
+  }
+}
+
+function ssClockTick() {
+  $('ss-clock').textContent = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// FERNSTEUERUNG (iPhone-Remote + optional Gamepad) – Poll-Empfänger
+// ════════════════════════════════════════════════════════════════════════════
+// Der Player meldet seinen Zustand und holt ~alle 0,9 s Transport-Kommandos ab.
+// Note-Vorschläge (Handy/Gamepad) schreibt der Server; der aktuelle Vorschlag
+// kommt im Poll zurück und wird im Screensaver angezeigt.
+const RC = { proposal: null, songId: null, timer: null };
+
+function playerNext()      { if (Q.pos + 1 < Q.songs.length) { Q.pos++; playCurrent(); } }
+function playerPrev()      { if (Q.pos > 0) { Q.pos--; playCurrent(); } }
+function playerPlayPause() { if (audioEl.paused) audioEl.play().catch(() => {}); else audioEl.pause(); }
+function playerPause()     { audioEl.pause(); }   // nur pausieren – Queue bleibt erhalten, ⏯ setzt fort
+function playerStop()      { audioEl.pause(); audioEl.src = ''; queueClear(); bgActive = false; bgAudioEl.pause(); releaseWakeLock(); if (SS.open) ssSync(); }
+
+function rcExec(cmd) {
+  if      (cmd === 'next')      playerNext();
+  else if (cmd === 'prev')      playerPrev();
+  else if (cmd === 'playpause') playerPlayPause();
+  else if (cmd === 'pause')     playerPause();
+  else if (cmd === 'stop')      playerStop();
+}
+
+// Kommando an den Server (auch vom lokalen Gamepad genutzt – ein Pfad für alles).
+async function rcSend(cmd) {
+  try { await fetch('/api/remote/command', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd }) }); }
+  catch {}
+}
+
+async function rcTick() {
+  const s = Q.songs[Q.pos];
+  if (s) {
+    try {
+      await fetch('/api/remote/nowplaying', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          songId: s.songId, headId: s.albumId,
+          title: s.title || '', artist: s.artist || '', album: s.albumTitle || '',
+          note: s.note || 0,
+          pos: Math.floor(audioEl.currentTime || 0),
+          dur: Math.floor(audioEl.duration || 0),
+        }),
+      });
+    } catch {}
+  }
+  try {
+    const d = await (await fetch('/api/remote/poll')).json();
+    (d.commands || []).forEach(rcExec);
+    const curId = s ? s.songId : null;
+    const prop  = d.proposal ?? null;
+    if (prop !== RC.proposal || curId !== RC.songId) {
+      RC.proposal = prop; RC.songId = curId;
+      if (SS.open) ssRenderNote();
+    }
+  } catch {}
+}
+
+function rcStart() {
+  if (!RC.timer) RC.timer = setInterval(rcTick, 900);
+  gamepadStart();
+}
+
+// Optionaler Bluetooth-Gamecontroller über die Gamepad-API. D-Pad hoch = besser
+// (Note −1), runter = schlechter; links/rechts = zurück/vor; A = Play/Pause, B = Stop.
+// Läuft über denselben Server-Pfad wie die Handy-Fernbedienung.
+const GP = { active: false, prev: {} };
+function gamepadStart() {
+  if (GP.active || !('getGamepads' in navigator)) return;
+  GP.active = true;
+  requestAnimationFrame(gamepadPoll);
+}
+function gpEdge(name, pressed) { const was = GP.prev[name] || false; GP.prev[name] = pressed; return pressed && !was; }
+function gamepadPoll() {
+  const gp = [...(navigator.getGamepads ? navigator.getGamepads() : [])].find(p => p);
+  if (gp) {
+    const b = gp.buttons.map(x => x.pressed), ax = gp.axes || [];
+    if (gpEdge('up',    b[12] || ax[1] < -0.6)) rcSend('note:up');
+    if (gpEdge('down',  b[13] || ax[1] >  0.6)) rcSend('note:down');
+    if (gpEdge('left',  b[14] || ax[0] < -0.6)) rcSend('prev');
+    if (gpEdge('right', b[15] || ax[0] >  0.6)) rcSend('next');
+    if (gpEdge('a', b[0])) rcSend('playpause');
+    if (gpEdge('b', b[1])) rcSend('stop');
+  }
+  requestAnimationFrame(gamepadPoll);
+}
+
+// Note-Darstellung im Screensaver: gespeicherte Note, bei offenem Vorschlag
+// zusätzlich "→ Vorschlag" und ein "vorgemerkt"-Badge.
+function ssNoteMarkup(stored, proposal) {
+  if (proposal == null || proposal === stored) return noteHtml(stored || 0);
+  const from = stored > 0 ? `<span class="nt-${stored} ss-note-old">Note ${stored}</span>` : '<span class="ss-note-old">—</span>';
+  return `${from}<span class="ss-note-arrow">→</span><span class="nt-${proposal} ss-note-new">Note ${proposal}</span><span class="ss-note-pill">&#10003; vorgemerkt</span>`;
+}
+function ssRenderNote() {
+  const s = Q.songs[Q.pos];
+  $('ss-note').innerHTML = s ? ssNoteMarkup(s.note || 0, RC.songId === s.songId ? RC.proposal : null) : '';
+}
 </script>
 </body>
 </html>

@@ -81,6 +81,63 @@ var cs = builder.Configuration.GetConnectionString("YamsDatabase")
 // da SqlClient intern pooled).
 SqlConnection NewConn() => new(cs);
 
+// ── Schema sicherstellen (idempotent, strikt additiv) ──────────────────────────
+// Legt die Verlaufstabelle CDSongHistory an, falls sie noch nicht existiert.
+// Berührt KEINE bestehende YAMS-Tabelle. Schlägt das fehl (z. B. fehlende Rechte),
+// läuft der Player trotzdem – der Verlauf ist dann einfach inaktiv.
+try
+{
+    using var initConn = NewConn();
+    initConn.Open();
+    using var initCmd = initConn.CreateCommand();
+    initCmd.CommandText = @"
+IF OBJECT_ID('dbo.CDSongHistory','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.CDSongHistory (
+        HistoryId INT IDENTITY(1,1) PRIMARY KEY,
+        CDSongId  INT          NOT NULL,
+        PlayedAt  DATETIME2(0) NOT NULL CONSTRAINT DF_CDSongHistory_PlayedAt DEFAULT SYSDATETIME(),
+        Source    CHAR(1)      NOT NULL CONSTRAINT DF_CDSongHistory_Source   DEFAULT 'W'
+    );
+    CREATE INDEX IX_CDSongHistory_PlayedAt ON dbo.CDSongHistory (PlayedAt DESC);
+END";
+    initCmd.ExecuteNonQuery();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"[Warnung] Verlaufstabelle konnte nicht sichergestellt werden: {ex.Message}");
+}
+
+// Legt die Vormerk-/Neubewertungstabelle CDSongReRate an, falls noch nicht vorhanden.
+// Nimmt vorgeschlagene Song-Noten auf, OHNE CDSongNote zu verändern. Ebenfalls strikt
+// additiv; schlägt es fehl, läuft der Player weiter – die Neubewertung ist dann inaktiv.
+try
+{
+    using var initConn = NewConn();
+    initConn.Open();
+    using var initCmd = initConn.CreateCommand();
+    initCmd.CommandText = @"
+IF OBJECT_ID('dbo.CDSongReRate','U') IS NULL
+BEGIN
+    CREATE TABLE dbo.CDSongReRate (
+        ReRateId    INT IDENTITY(1,1) PRIMARY KEY,
+        CDSongId    INT          NOT NULL,
+        CDHeadId    INT          NOT NULL,
+        NoteNeu     SMALLINT     NOT NULL,
+        Source      CHAR(1)      NOT NULL CONSTRAINT DF_CDSongReRate_Source    DEFAULT 'W',
+        CreatedAt   DATETIME2(0) NOT NULL CONSTRAINT DF_CDSongReRate_CreatedAt DEFAULT SYSDATETIME(),
+        ProcessedAt DATETIME2(0) NULL
+    );
+    CREATE UNIQUE INDEX UX_CDSongReRate_OpenSong ON dbo.CDSongReRate (CDSongId)  WHERE ProcessedAt IS NULL;
+    CREATE INDEX        IX_CDSongReRate_OpenHead ON dbo.CDSongReRate (CDHeadId) WHERE ProcessedAt IS NULL;
+END";
+    initCmd.ExecuteNonQuery();
+}
+catch (Exception ex)
+{
+    Console.Error.WriteLine($"[Warnung] Neubewertungstabelle konnte nicht sichergestellt werden: {ex.Message}");
+}
+
 // ════════════════════════════════════════════════════════════════════════════════
 // HILFSFUNKTIONEN
 // ════════════════════════════════════════════════════════════════════════════════
@@ -579,15 +636,102 @@ app.MapPost("/api/songs/{songId:int}/played", async (int songId) =>
 {
     await using var conn = NewConn();
     await conn.OpenAsync();
+    await using (var cmd = conn.CreateCommand())
+    {
+        cmd.CommandText = @"
+            UPDATE CDSong
+            SET    CDSongCount    = ISNULL(CDSongCount,    0) + 1,
+                   CDSongWebCount = ISNULL(CDSongWebCount, 0) + 1
+            WHERE  CDSongId = @Id";
+        cmd.Parameters.AddWithValue("@Id", songId);
+        var rows = await cmd.ExecuteNonQueryAsync();
+        if (rows == 0) return Results.NotFound();
+    }
+
+    // Verlauf mitschreiben – best effort. Ein Fehler hier (z. B. Tabelle fehlt)
+    // darf die bereits erfolgte Zähler-Aktualisierung nicht beeinträchtigen.
+    try
+    {
+        await using var hist = conn.CreateCommand();
+        hist.CommandText = "INSERT INTO CDSongHistory (CDSongId) VALUES (@Id)";
+        hist.Parameters.AddWithValue("@Id", songId);
+        await hist.ExecuteNonQueryAsync();
+    }
+    catch { /* Verlauf ist optional */ }
+
+    return Results.Ok();
+});
+
+// ── GET /api/history?limit=200&offset=0 ────────────────────────────────────────
+// Liefert die zuletzt gespielten Songs (neueste zuerst), inkl. Metadaten aus
+// CDSong/CDHead/CDArtist. Paging über limit/offset für "Mehr laden".
+//
+// playedAt wird als sortierbarer ISO-String ohne Zeitzone geliefert
+// (SYSDATETIME = Serverzeit) und im Browser als lokale Zeit interpretiert.
+// Hinweis: CDSongNote ist SmallInt → Convert.ToInt32.
+app.MapGet("/api/history", async (int limit = 200, int offset = 0) =>
+{
+    if (limit < 1)    limit = 1;
+    if (limit > 1000) limit = 1000;
+    if (offset < 0)   offset = 0;
+
+    await using var conn = NewConn();
+    await conn.OpenAsync();
     await using var cmd = conn.CreateCommand();
     cmd.CommandText = @"
-        UPDATE CDSong
-        SET    CDSongCount    = ISNULL(CDSongCount,    0) + 1,
-               CDSongWebCount = ISNULL(CDSongWebCount, 0) + 1
-        WHERE  CDSongId = @Id";
-    cmd.Parameters.AddWithValue("@Id", songId);
-    var rows = await cmd.ExecuteNonQueryAsync();
-    return rows > 0 ? Results.Ok() : Results.NotFound();
+        SELECT hi.HistoryId,
+               hi.PlayedAt,
+               s.CDSongId,
+               RTRIM(s.CDSongTitel)                            AS Titel,
+               RTRIM(ISNULL(sa.CDArtistName, a.CDArtistName))  AS Artist,
+               h.CDHeadId,
+               RTRIM(h.CDHeadTitel)                            AS AlbumTitel,
+               h.CDHeadJahr,
+               ISNULL(DATEDIFF(SECOND, '00:00:00', s.CDSongDauer), 0) AS Secs,
+               ISNULL(s.CDSongNote,  0)                        AS Note,
+               ISNULL(s.CDSongCount, 0)                        AS Cnt
+        FROM   CDSongHistory hi
+        JOIN   CDSong   s  ON hi.CDSongId  = s.CDSongId
+        JOIN   CDHead   h  ON s.CDHeadId   = h.CDHeadId
+        JOIN   CDArtist a  ON h.CDArtistId = a.CDArtistId
+        LEFT JOIN CDArtist sa ON s.SongArtistId = sa.CDArtistId
+        ORDER  BY hi.PlayedAt DESC, hi.HistoryId DESC
+        OFFSET @Offset ROWS FETCH NEXT @Limit ROWS ONLY";
+    cmd.Parameters.AddWithValue("@Offset", offset);
+    cmd.Parameters.AddWithValue("@Limit",  limit);
+
+    var items = new List<object>();
+    await using var r = await cmd.ExecuteReaderAsync();
+    while (await r.ReadAsync())
+    {
+        items.Add(new
+        {
+            historyId  = Convert.ToInt32(r[0]),
+            playedAt   = r.GetDateTime(1).ToString("s"),   // yyyy-MM-ddTHH:mm:ss
+            songId     = Convert.ToInt32(r[2]),
+            title      = r.IsDBNull(3)  ? ""  : r.GetString(3),
+            artist     = r.IsDBNull(4)  ? ""  : r.GetString(4).Trim(),
+            albumId    = Convert.ToInt32(r[5]),
+            albumTitle = r.IsDBNull(6)  ? ""  : r.GetString(6).Trim(),
+            year       = r.IsDBNull(7)  ? 0   : Convert.ToInt32(r[7]),
+            secs       = r.IsDBNull(8)  ? 0   : Convert.ToInt32(r[8]),
+            note       = r.IsDBNull(9)  ? 0   : Convert.ToInt32(r[9]),
+            count      = r.IsDBNull(10) ? 0   : Convert.ToInt32(r[10]),
+        });
+    }
+    return Results.Json(items);
+});
+
+// ── DELETE /api/history ────────────────────────────────────────────────────────
+// Leert den gesamten Abspielverlauf. Die Spielzähler (CDSongCount) bleiben unberührt.
+app.MapDelete("/api/history", async () =>
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = "DELETE FROM CDSongHistory";
+    var n = await cmd.ExecuteNonQueryAsync();
+    return Results.Json(new { deleted = n });
 });
 
 // ── GET /api/stream/{songId} ───────────────────────────────────────────────────
@@ -1020,5 +1164,209 @@ app.MapGet("/api/playlists/{id:int}/tracks", async (int id) =>
     return Results.Json(tracks);
 });
 
+// ════════════════════════════════════════════════════════════════════════════════
+// NEUBEWERTUNG (Vorschläge) + FERNSTEUERUNG (iPhone / Gamepad via Relay)
+// ════════════════════════════════════════════════════════════════════════════════
+// Grundprinzip: Player/Handy schreiben NIE an CDSongNote – nur Vorschläge in
+// CDSongReRate. Übernommen wird später bewusst in NextYAMSKopie.
+
+// In-Memory-Zustand der Fernsteuerung (Einzelhaushalt: 1 Player + n Fernbedienungen).
+var remote = new RemoteHub();
+// Serialisiert Note-Schritte, damit schnelle Doppeldrücke (3→2→1) sich nicht überholen.
+var reRateGate = new SemaphoreSlim(1, 1);
+
+// Schreibt einen ABSOLUTEN Notenvorschlag (1..5) für einen Song und merkt dessen Album
+// vor. Upsert: max. ein offener Vorschlag je Song. Liefert den gespeicherten Wert, oder
+// null wenn der Song unbekannt ist.
+async Task<int?> ApplyProposalAsync(int songId, int note)
+{
+    if (note < 1) note = 1;
+    if (note > 5) note = 5;
+
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+
+    await using var look = conn.CreateCommand();
+    look.CommandText = "SELECT CDHeadId FROM CDSong WHERE CDSongId = @s";
+    look.Parameters.AddWithValue("@s", songId);
+    var headObj = await look.ExecuteScalarAsync();
+    if (headObj is null || headObj is DBNull) return null;
+
+    await using var up = conn.CreateCommand();
+    up.CommandText = @"
+        UPDATE CDSongReRate
+        SET    NoteNeu = @n, CreatedAt = SYSDATETIME()
+        WHERE  CDSongId = @s AND ProcessedAt IS NULL;
+        IF @@ROWCOUNT = 0
+            INSERT INTO CDSongReRate (CDSongId, CDHeadId, NoteNeu)
+            VALUES (@s, @h, @n);";
+    up.Parameters.AddWithValue("@s", songId);
+    up.Parameters.AddWithValue("@h", Convert.ToInt32(headObj));
+    up.Parameters.AddWithValue("@n", note);
+    await up.ExecuteNonQueryAsync();
+    return note;
+}
+
+// Aktuell wirksamer Notenwert eines Songs: offener Vorschlag, sonst gespeicherte
+// CDSongNote, sonst 3 (unbewertet). Basis der ▲/▼-Schrittlogik.
+async Task<int> EffectiveNoteAsync(int songId)
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SELECT COALESCE(
+                 (SELECT TOP 1 NoteNeu FROM CDSongReRate
+                  WHERE CDSongId = @s AND ProcessedAt IS NULL),
+                 NULLIF((SELECT CDSongNote FROM CDSong WHERE CDSongId = @s), 0),
+                 3)";
+    cmd.Parameters.AddWithValue("@s", songId);
+    var v = await cmd.ExecuteScalarAsync();
+    return v is null || v is DBNull ? 3 : Convert.ToInt32(v);
+}
+
+// Aktueller offener Vorschlag eines Songs (oder null).
+async Task<int?> OpenProposalAsync(int songId)
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = "SELECT TOP 1 NoteNeu FROM CDSongReRate WHERE CDSongId = @s AND ProcessedAt IS NULL";
+    cmd.Parameters.AddWithValue("@s", songId);
+    var v = await cmd.ExecuteScalarAsync();
+    return v is null || v is DBNull ? (int?)null : Convert.ToInt32(v);
+}
+
+// ── POST /api/songs/{id}/rerate  { note: 1..5 } ─────────────────────────────────
+// Absoluter Notenvorschlag (z. B. 1–5-Taste direkt am Player).
+app.MapPost("/api/songs/{songId:int}/rerate", async (int songId, ReRateDto body) =>
+{
+    var stored = await ApplyProposalAsync(songId, body.Note);
+    return stored is null ? Results.NotFound() : Results.Json(new { songId, note = stored });
+});
+
+// ── DELETE /api/songs/{id}/rerate ───────────────────────────────────────────────
+// Nimmt den offenen Vorschlag eines Songs zurück.
+app.MapDelete("/api/songs/{songId:int}/rerate", async (int songId) =>
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = "DELETE FROM CDSongReRate WHERE CDSongId = @s AND ProcessedAt IS NULL";
+    cmd.Parameters.AddWithValue("@s", songId);
+    var n = await cmd.ExecuteNonQueryAsync();
+    return Results.Json(new { songId, removed = n });
+});
+
+// ── GET /api/rerate ─────────────────────────────────────────────────────────────
+// Offene Vorschläge (optional für eine Player-Liste).
+app.MapGet("/api/rerate", async () =>
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SELECT r.CDSongId, r.CDHeadId, r.NoteNeu, r.CreatedAt,
+               RTRIM(ISNULL(s.CDSongTitel,'')) AS Titel,
+               RTRIM(ISNULL(h.CDHeadTitel,''))  AS AlbumTitel,
+               ISNULL(s.CDSongNote, 0)          AS NoteAlt
+        FROM   CDSongReRate r
+        JOIN   CDSong s ON r.CDSongId = s.CDSongId
+        JOIN   CDHead h ON r.CDHeadId = h.CDHeadId
+        WHERE  r.ProcessedAt IS NULL
+        ORDER  BY r.CreatedAt DESC";
+    var items = new List<object>();
+    await using var r = await cmd.ExecuteReaderAsync();
+    while (await r.ReadAsync())
+        items.Add(new
+        {
+            songId     = Convert.ToInt32(r[0]),
+            albumId    = Convert.ToInt32(r[1]),
+            noteNeu    = Convert.ToInt32(r[2]),
+            createdAt  = r.GetDateTime(3).ToString("s"),
+            title      = r.GetString(4).Trim(),
+            albumTitle = r.GetString(5).Trim(),
+            noteAlt    = Convert.ToInt32(r[6]),
+        });
+    return Results.Json(items);
+});
+
+// ── Relay: Player ⇄ Fernbedienung (Short-Poll) ───────────────────────────────────
+// Player meldet "läuft gerade".
+app.MapPost("/api/remote/nowplaying", (NowPlayingDto np) =>
+{
+    remote.NowPlaying   = np;
+    remote.NowPlayingAt = DateTime.UtcNow;
+    return Results.Ok();
+});
+
+// Player holt anstehende Transport-Kommandos ab (und leert die Queue).
+app.MapGet("/api/remote/poll", async () =>
+{
+    var cmds = new List<string>();
+    while (remote.Commands.TryDequeue(out var c)) cmds.Add(c);
+    int? proposal = (remote.NowPlaying is { } np && np.SongId > 0) ? await OpenProposalAsync(np.SongId) : null;
+    return Results.Json(new { commands = cmds, proposal });
+});
+
+// Fernbedienung liest aktuellen Zustand + offenen Vorschlag.
+app.MapGet("/api/remote/state", async () =>
+{
+    var np = remote.NowPlaying;
+    int? proposal = (np is not null && np.SongId > 0) ? await OpenProposalAsync(np.SongId) : null;
+    var online = (DateTime.UtcNow - remote.NowPlayingAt).TotalSeconds < 10;
+    return Results.Json(new { online, nowPlaying = np, proposal });
+});
+
+// Fernbedienung sendet ein Kommando. Transport → Queue für den Player.
+// Note → Server schreibt Vorschlag für den laufenden Song (absolut oder ±1).
+app.MapPost("/api/remote/command", async (CommandDto body) =>
+{
+    var cmd = (body.Cmd ?? "").Trim().ToLowerInvariant();
+
+    if (cmd is "next" or "prev" or "playpause" or "pause" or "stop")
+    {
+        remote.Commands.Enqueue(cmd);
+        return Results.Ok();
+    }
+
+    var np = remote.NowPlaying;
+    if (np is null || np.SongId <= 0) return Results.Json(new { error = "kein laufender Song" });
+
+    await reRateGate.WaitAsync();
+    try
+    {
+        int target;
+        if (cmd == "note:up")        target = await EffectiveNoteAsync(np.SongId) - 1; // besser
+        else if (cmd == "note:down") target = await EffectiveNoteAsync(np.SongId) + 1; // schlechter
+        else if (cmd.StartsWith("note:set:") && int.TryParse(cmd.AsSpan(9), out var n)) target = n;
+        else return Results.Json(new { error = "unbekanntes Kommando" });
+
+        var stored = await ApplyProposalAsync(np.SongId, target);
+        return Results.Json(new { songId = np.SongId, note = stored });
+    }
+    finally { reRateGate.Release(); }
+});
+
+// ── GET /remote ──────────────────────────────────────────────────────────────
+// Bequemer Pfad für die iPhone-Fernbedienung (sonst auch unter /remote.html).
+app.MapGet("/remote", (IWebHostEnvironment env) =>
+    Results.File(Path.Combine(env.WebRootPath ?? "wwwroot", "remote.html"), "text/html"));
+
 // ── Server starten ─────────────────────────────────────────────────────────────
 app.Run();
+
+// ════════════════════════════════════════════════════════════════════════════════
+// DTOs / Relay-Zustand (Fernsteuerung + Neubewertung)
+// ════════════════════════════════════════════════════════════════════════════════
+record ReRateDto(int Note);
+record CommandDto(string? Cmd);
+record NowPlayingDto(int SongId, int HeadId, string? Title, string? Artist, string? Album, int Note, double Pos, double Dur);
+
+// Hält den letzten gemeldeten Player-Zustand und die noch offenen Transport-Kommandos.
+class RemoteHub
+{
+    public NowPlayingDto? NowPlaying;
+    public DateTime NowPlayingAt = DateTime.MinValue;
+    public readonly System.Collections.Concurrent.ConcurrentQueue<string> Commands = new();
+}
