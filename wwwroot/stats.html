@@ -39,6 +39,23 @@
   .fchip.on{background:var(--accent);color:#0c0e13;border-color:var(--accent);font-weight:600}
   .fchip .c{opacity:.6;font-size:11px;margin-left:5px}
   .fchip.on .c{opacity:.7}
+  .fchip.genre-sum{border-style:dashed}
+  .fchip.genre-sum.excl{border-style:solid;border-color:var(--accent);color:var(--fg)}
+  #genrepanel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 30px}
+  #genrepanel[hidden]{display:none}
+  .gp-groups{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+  .gp-head{display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap}
+  .gp-rowlabel{font-size:10px;color:var(--dim2);font-weight:700;letter-spacing:.5px;margin-right:4px}
+  #gp-search{flex:1;min-width:150px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--fg);padding:7px 11px;font-family:var(--sans);font-size:14px}
+  #gp-info{font-size:12.5px;color:var(--dim)}
+  .gp-link{background:none;border:0;color:var(--accent);cursor:pointer;font-size:12.5px;padding:0;font-family:var(--sans)}
+  .gp-grid{display:flex;flex-wrap:wrap;gap:6px;max-height:210px;overflow:auto}
+  .g-chip{font-family:var(--sans);font-size:13px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--panel2);color:var(--fg);cursor:pointer}
+  .g-chip:hover{border-color:var(--dim)}
+  .g-chip.grp{font-weight:700;font-size:11px;letter-spacing:.3px}
+  .g-chip.active{background:var(--accent);border-color:var(--accent);color:#0c0e13;font-weight:600}
+  .g-chip.partial{border-color:var(--accent);color:var(--accent)}
+  .g-chip.excluded{background:#1f1416;border-color:#5a2b2b;color:var(--n5);text-decoration:line-through}
 
   .hero h1{font-family:var(--disp);font-weight:800;font-size:clamp(40px,8vw,76px);
            line-height:.95;letter-spacing:-.01em;margin:0 0 10px}
@@ -106,6 +123,7 @@
   </div>
 
   <div id="filterbar" class="filterbar"></div>
+  <div id="genrepanel" hidden></div>
   <div id="content"><div class="loading">Kennzahlen werden berechnet&#8230;</div></div>
 </div>
 
@@ -121,7 +139,8 @@ const CATLAB = {O:'Original', C:'Soundtrack', M:'Mix', S:'Sampler', B:'Bootleg'}
 const TYPLAB = {S:'Studio', L:'Live', M:'Mixtape'};
 
 let FACETS = null;
-const FILTER = {cat:new Set(), typ:new Set()};
+const FILTER = {cat:new Set(), typ:new Set(), genreInc:new Set(), genreExcl:new Set()};
+let G_GROUPS = [];
 
 // ── Filter ───────────────────────────────────────────────────
 function labelOf(kind,code){ return (kind==='cat'?CATLAB:TYPLAB)[code] || code; }
@@ -129,28 +148,119 @@ function qsFilter(){
   const p = new URLSearchParams();
   if(FILTER.cat.size && FILTER.cat.size < FACETS.cats.length) p.set('cat',[...FILTER.cat].join(','));
   if(FILTER.typ.size && FILTER.typ.size < FACETS.typs.length) p.set('typ',[...FILTER.typ].join(','));
+  FILTER.genreInc.forEach(g=>p.append('ig',g));
+  FILTER.genreExcl.forEach(g=>p.append('xg',g));
   const s = p.toString(); return s?('?'+s):'';
 }
 function renderFilterBar(){
   const grp = (title,facet,sel,kind)=>`
     <div class="fgroup"><span class="glab">${title}</span>${facet.map(f=>`
       <button class="fchip${sel.has(f.code)?' on':''}" data-kind="${kind}" data-code="${esc(f.code)}">${esc(labelOf(kind,f.code))}<span class="c">${fmt(f.albums)}</span></button>`).join('')}</div>`;
-  $('#filterbar').innerHTML = grp('Kategorie',FACETS.cats,FILTER.cat,'cat') + grp('Typ',FACETS.typs,FILTER.typ,'typ');
-  $('#filterbar').querySelectorAll('.fchip').forEach(b=>b.onclick=()=>toggle(b.dataset.kind,b.dataset.code));
+  const genreGrp = `<div class="fgroup"><span class="glab">Genre</span>
+      <button class="fchip genre-sum${(FILTER.genreInc.size||FILTER.genreExcl.size)?' excl':''}" id="genreToggle"><span class="gl">${esc(genreSummary())}</span> &#9662;</button></div>`;
+  $('#filterbar').innerHTML = grp('Kategorie',FACETS.cats,FILTER.cat,'cat') + grp('Typ',FACETS.typs,FILTER.typ,'typ') + genreGrp;
+  $('#filterbar').querySelectorAll('.fchip[data-kind]').forEach(b=>b.onclick=()=>toggle(b.dataset.kind,b.dataset.code));
+  $('#genreToggle').onclick = toggleGenrePanel;
+}
+// ── Genre-Filter wie im Player: Gruppen + Einzel-Genres, Dreizustand ──────────
+// neutral → "nur" (eingeschlossen, grün) → "ohne" (ausgeschlossen, rot) → neutral
+function genreSummary(){
+  const i = FILTER.genreInc.size, x = FILTER.genreExcl.size;
+  if(i>0){ const a=[...FILTER.genreInc]; return 'Genre: nur ' + (i<=2?a.join(', '):i+' Genres'); }
+  if(x>0){ const a=[...FILTER.genreExcl]; return 'Genre: ohne ' + (x<=2?a.join(', '):x+' Genres'); }
+  return 'Genre: alle';
+}
+function updateGenreBtn(){
+  const gl = document.querySelector('#genreToggle .gl'); if(gl) gl.textContent = genreSummary();
+  const gt = $('#genreToggle'); if(gt) gt.classList.toggle('excl', FILTER.genreInc.size>0 || FILTER.genreExcl.size>0);
+}
+function groupsOrFallback(){
+  return (G_GROUPS && G_GROUPS.length) ? G_GROUPS : [{group:'Alle Genres', genres:(FACETS.genres||[]).map(g=>g.code)}];
+}
+function allGenreCodes(){ return [...new Set(groupsOrFallback().flatMap(g=>g.genres))].sort(); }
+function toggleGenrePanel(){
+  const p = $('#genrepanel');
+  if(p.hasAttribute('hidden')) openGenrePanel(); else p.setAttribute('hidden','');
+}
+function openGenrePanel(){
+  const p = $('#genrepanel');
+  const groups = groupsOrFallback();
+  p.innerHTML = `<div class="gp-groups" id="gp-groups"><span class="gp-rowlabel">GRUPPEN</span>${
+      groups.map(gr=>`<button class="g-chip grp" data-group="${esc(gr.group)}" title="${esc(gr.genres.join(', '))}">${esc(gr.group)}</button>`).join('')}</div>
+    <div class="gp-head">
+      <span class="gp-rowlabel">EINZELN</span>
+      <input id="gp-search" placeholder="Genre suchen&#8230;" autocomplete="off">
+      <span id="gp-info"></span>
+      <button id="gp-reset" class="gp-link">zur&uuml;cksetzen</button>
+      <button id="gp-close" class="gp-link">schlie&szlig;en</button>
+    </div>
+    <div class="gp-grid" id="gp-grid"></div>`;
+  $('#gp-groups').querySelectorAll('.g-chip.grp').forEach(b=>b.onclick=()=>toggleGroup(b.dataset.group));
+  $('#gp-search').oninput = e => renderGenreGrid(e.target.value);
+  $('#gp-reset').onclick  = ()=>{ FILTER.genreInc.clear(); FILTER.genreExcl.clear(); afterGenreChange(); renderGenreGrid($('#gp-search').value); };
+  $('#gp-close').onclick  = ()=> p.setAttribute('hidden','');
+  renderGenreGrid(''); refreshGenreStates();
+  p.removeAttribute('hidden'); $('#gp-search').focus();
+}
+function renderGenreGrid(ft){
+  ft = (ft||'').trim().toLowerCase();
+  const items = allGenreCodes().filter(g=>!ft || g.toLowerCase().includes(ft));
+  const grid = $('#gp-grid'); if(!grid) return;
+  grid.innerHTML = items.length
+    ? items.map(g=>`<button class="g-chip${FILTER.genreInc.has(g)?' active':FILTER.genreExcl.has(g)?' excluded':''}" data-genre="${esc(g)}">${esc(g)}</button>`).join('')
+    : '<span class="meta">keine Treffer</span>';
+  grid.querySelectorAll('.g-chip[data-genre]').forEach(b=>b.onclick=()=>toggleGenre(b.dataset.genre));
+}
+function toggleGenre(g){
+  if(FILTER.genreInc.has(g)){ FILTER.genreInc.delete(g); FILTER.genreExcl.add(g); }
+  else if(FILTER.genreExcl.has(g)){ FILTER.genreExcl.delete(g); }
+  else { FILTER.genreInc.add(g); }
+  afterGenreChange();
+}
+function toggleGroup(group){
+  const genres = (groupsOrFallback().find(x=>x.group===group)||{}).genres||[];
+  const inCnt = genres.filter(g=>FILTER.genreInc.has(g)).length;
+  const exCnt = genres.filter(g=>FILTER.genreExcl.has(g)).length;
+  if(inCnt===genres.length){ genres.forEach(g=>{ FILTER.genreInc.delete(g); FILTER.genreExcl.add(g); }); }
+  else if(exCnt===genres.length){ genres.forEach(g=>FILTER.genreExcl.delete(g)); }
+  else { genres.forEach(g=>{ FILTER.genreExcl.delete(g); FILTER.genreInc.add(g); }); }
+  afterGenreChange();
+}
+function afterGenreChange(){ saveFilter(); refreshGenreStates(); updateGenreBtn(); load(); }
+function updateGenreInfo(){ const i=$('#gp-info'); if(!i) return;
+  const parts=[]; if(FILTER.genreInc.size) parts.push('nur '+FILTER.genreInc.size); if(FILTER.genreExcl.size) parts.push('ohne '+FILTER.genreExcl.size);
+  i.textContent = parts.length? parts.join(' · ') : 'kein Genre-Filter';
+}
+function refreshGenreStates(){
+  const groups = groupsOrFallback();
+  document.querySelectorAll('#gp-groups .g-chip.grp').forEach(btn=>{
+    const genres=(groups.find(x=>x.group===btn.dataset.group)||{}).genres||[]; const n=genres.length;
+    const inCnt=genres.filter(g=>FILTER.genreInc.has(g)).length, exCnt=genres.filter(g=>FILTER.genreExcl.has(g)).length;
+    btn.classList.toggle('active', n>0 && inCnt===n && exCnt===0);
+    btn.classList.toggle('excluded', n>0 && exCnt===n && inCnt===0);
+    btn.classList.toggle('partial', (inCnt>0||exCnt>0) && !(inCnt===n&&exCnt===0) && !(exCnt===n&&inCnt===0));
+  });
+  document.querySelectorAll('#gp-grid .g-chip[data-genre]').forEach(btn=>{
+    btn.classList.toggle('active', FILTER.genreInc.has(btn.dataset.genre));
+    btn.classList.toggle('excluded', FILTER.genreExcl.has(btn.dataset.genre));
+  });
+  updateGenreInfo();
 }
 function toggle(kind, code){
   const set = kind==='cat'?FILTER.cat:FILTER.typ;
   if(set.has(code)){ if(set.size<=1) return; set.delete(code); } else set.add(code);  // mind. 1 je Gruppe
   saveFilter(); renderFilterBar(); load();
 }
-function saveFilter(){ try{ localStorage.setItem('yams-stats-filter', JSON.stringify({cat:[...FILTER.cat],typ:[...FILTER.typ]})); }catch{} }
+function saveFilter(){ try{ localStorage.setItem('yams-stats-filter', JSON.stringify({cat:[...FILTER.cat],typ:[...FILTER.typ],ig:[...FILTER.genreInc],xg:[...FILTER.genreExcl]})); }catch{} }
 function loadFilterFromStorage(){
   try{
     const s = JSON.parse(localStorage.getItem('yams-stats-filter')||'null'); if(!s) return;
-    const cc = FACETS.cats.map(c=>c.code), tc = FACETS.typs.map(t=>t.code);
+    const cc = FACETS.cats.map(c=>c.code), tc = FACETS.typs.map(t=>t.code), gc = FACETS.genres.map(g=>g.code);
     const c = (s.cat||[]).filter(x=>cc.includes(x)), t = (s.typ||[]).filter(x=>tc.includes(x));
     if(c.length) FILTER.cat = new Set(c);
     if(t.length) FILTER.typ = new Set(t);
+    FILTER.genreInc  = new Set((s.ig||[]).filter(x=>gc.includes(x)));
+    FILTER.genreExcl = new Set((s.xg||[]).filter(x=>gc.includes(x)));
   }catch{}
 }
 
@@ -160,6 +270,7 @@ async function bootstrap(){
   try { d = await (await fetch('/api/statistics')).json(); }
   catch { $('#content').innerHTML = errHtml(); return; }
   FACETS = d.facets;
+  try { G_GROUPS = await (await fetch('/api/genres/groups')).json(); } catch { G_GROUPS = []; }
   FILTER.cat = new Set(FACETS.cats.map(c=>c.code));
   FILTER.typ = new Set(FACETS.typs.map(t=>t.code));
   loadFilterFromStorage();

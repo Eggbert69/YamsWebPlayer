@@ -1553,7 +1553,7 @@ app.MapPost("/api/remote/command", async (CommandDto body) =>
 // ── GET /api/statistics ──────────────────────────────────────────────────────────
 // Aggregierte Kennzahlen für die Statistik-Seite (/stats): Qualität (Noten/Wertung),
 // Zeit (Jahrzehnte), Interpreten, Genre/Subgenre, Hörverhalten, Datenqualität.
-app.MapGet("/api/statistics", async (string? cat, string? typ) =>
+app.MapGet("/api/statistics", async (string? cat, string? typ, string[]? ig, string[]? xg) =>
 {
     await using var conn = NewConn();
     await conn.OpenAsync();
@@ -1575,11 +1575,14 @@ app.MapGet("/api/statistics", async (string? cat, string? typ) =>
     }
     var catIn = In(cat, validCat);
     var typIn = In(typ, validTyp);
+    string? igIn = null, xgIn = null;  // ein-/ausgeschlossene Genres – unten gegen die echte Genre-Liste validiert
     string F(string a)
     {
         var p = new List<string>();
         if (catIn != null) p.Add($"RTRIM({a}.CDHeadCat) IN ({catIn})");
         if (typIn != null) p.Add($"RTRIM({a}.CDHeadTyp) IN ({typIn})");
+        if (igIn  != null) p.Add($"RTRIM({a}.CDHeadGenre) IN ({igIn})");
+        if (xgIn  != null) p.Add($"RTRIM({a}.CDHeadGenre) NOT IN ({xgIn})");
         return p.Count == 0 ? "" : " AND " + string.Join(" AND ", p);
     }
 
@@ -1605,6 +1608,24 @@ app.MapGet("/api/statistics", async (string? cat, string? typ) =>
         r => new { code = Str(r[0]), albums = Int(r[1]) });
     var facetsTyp = await Q("SELECT RTRIM(CDHeadTyp), COUNT(*) FROM CDHead WHERE RTRIM(ISNULL(CDHeadTyp,''))<>'' GROUP BY RTRIM(CDHeadTyp) ORDER BY 2 DESC",
         r => new { code = Str(r[0]), albums = Int(r[1]) });
+
+    // Alle Genres (für die Filter-Liste) + Whitelist zum Validieren der Ausschlüsse.
+    var facetsGenre = new List<object>();
+    var genreSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT RTRIM(CDHeadGenre), COUNT(*) FROM CDHead WHERE RTRIM(ISNULL(CDHeadGenre,''))<>'' GROUP BY RTRIM(CDHeadGenre) ORDER BY 2 DESC";
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) { var g = Str(r[0]); genreSet.Add(g); facetsGenre.Add(new { code = g, albums = Int(r[1]) }); }
+    }
+    string? GenreIn(string[]? arr)
+    {
+        if (arr == null || arr.Length == 0) return null;
+        var picked = arr.Select(x => (x ?? "").Trim()).Where(x => x.Length > 0 && genreSet.Contains(x)).Distinct().ToList();
+        return picked.Count > 0 ? string.Join(",", picked.Select(g => "'" + g.Replace("'", "''") + "'")) : null;
+    }
+    igIn = GenreIn(ig);
+    xgIn = GenreIn(xg);
 
     // 2 — Qualität
     var noteHist = await Q(
@@ -1671,7 +1692,7 @@ app.MapGet("/api/statistics", async (string? cat, string? typ) =>
     return Results.Json(new
     {
         totals,
-        facets = new { cats = facetsCat, typs = facetsTyp },
+        facets = new { cats = facetsCat, typs = facetsTyp, genres = facetsGenre },
         noteHist, wertungHist, quality,
         perDecadeAlbums, perDecadeSongs,
         topArtistsByAlbums, topArtistsByNote,
