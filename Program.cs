@@ -1104,6 +1104,7 @@ app.MapGet("/api/albums/by-year", async (
 
 // ── GET /api/playlists ─────────────────────────────────────────────────────────
 // Liefert alle gespeicherten Playlists (aus PlaylistClaude-Tabelle).
+// songFlag ist gesetzt, wenn die Playlist eine SmartRule mit SongFlag hat (z.B. HOF-Playlists).
 app.MapGet("/api/playlists", async () =>
 {
     await using var conn = NewConn();
@@ -1112,15 +1113,26 @@ app.MapGet("/api/playlists", async () =>
     cmd.CommandText = @"
         SELECT p.PlaylistId,
                RTRIM(p.PlaylistName) AS Name,
-               COUNT(d.CDSongId)     AS TrackCount
+               (SELECT COUNT(*) FROM PlaylistDetailClaude d WHERE d.PlaylistId = p.PlaylistId) AS TrackCount,
+               CAST(p.PlaylistSelect AS NVARCHAR(MAX)) AS PlaylistSelect
         FROM   PlaylistClaude p
-        LEFT JOIN PlaylistDetailClaude d ON p.PlaylistId = d.PlaylistId
-        GROUP BY p.PlaylistId, p.PlaylistName
         ORDER BY p.PlaylistName";
     var list = new List<object>();
     await using var r = await cmd.ExecuteReaderAsync();
     while (await r.ReadAsync())
-        list.Add(new { id = r.GetInt32(0), name = r.GetString(1).Trim(), trackCount = r.GetInt32(2) });
+    {
+        var ps = r.IsDBNull(3) ? null : r.GetString(3);
+        string? songFlag    = null;
+        string? genreGroups = null;
+        if (ps != null)
+        {
+            var mf = System.Text.RegularExpressions.Regex.Match(ps, @"SongFlag=""([^""]+)""");
+            if (mf.Success) songFlag = mf.Groups[1].Value;
+            var mg = System.Text.RegularExpressions.Regex.Match(ps, @"GenreGroups=""([^""]+)""");
+            if (mg.Success) genreGroups = mg.Groups[1].Value;
+        }
+        list.Add(new { id = r.GetInt32(0), name = r.GetString(1).Trim(), trackCount = r.GetInt32(2), songFlag, genreGroups });
+    }
     return Results.Json(list);
 });
 
@@ -1167,24 +1179,49 @@ app.MapGet("/api/playlists/{id:int}/tracks", async (int id) =>
 // ── GET /api/generator/songs ──────────────────────────────────────────────────
 // Mini-Playlist-Generator: alle Songs eines Künstlers nach Typ/Modus.
 // Parameter:
-//   artist              – exakter Künstlername (CDArtistName oder CDArtistSort)
+//   artist              – exakter Künstlername (optional wenn genres gesetzt)
+//   genres              – kommagetrennte Genre-Namen (OR-verknüpft, optional wenn artist gesetzt)
 //   headTyp             – 'S'=Studio (Standard), 'L'=Live
 //   includeCompilations – auch CDHeadCat='C' (Sampler/Best Of) einschließen
 //   maxNote             – 0=alle, 1=nur Note 1, 2=≤Note 2, 3=≤Note 3
+//   minNote             – 0=kein Filter, 2=Note ≥ 2 (kombiniert mit maxNote für exakt)
+//   played              – 0=alle, 1=nie gespielt (CDSongCount=0), 2=bereits gespielt
+//   maxSongs            – 0=alle, >0=zufällige Auswahl auf max. N Songs begrenzt
+// Artist und Genre sind OR-verknüpft: beide können gleichzeitig gesetzt sein.
 // Rückgabeformat identisch mit /api/playlists/{id}/tracks.
-app.MapGet("/api/generator/songs", async (string? artist, string? headTyp, bool? includeCompilations, int? maxNote) =>
+app.MapGet("/api/generator/songs", async (string? artist, string? genres, string? headTyp, bool? includeCompilations, int? maxNote, int? minNote, int? played, int? maxSongs) =>
 {
-    if (string.IsNullOrWhiteSpace(artist))
-        return Results.BadRequest(new { error = "artist required" });
+    bool hasArtist = !string.IsNullOrWhiteSpace(artist);
+    var  genreList = (genres ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    bool hasGenres = genreList.Length > 0;
+    if (!hasArtist && !hasGenres)
+        return Results.BadRequest(new { error = "artist oder genres erforderlich" });
 
     bool   inclComp = includeCompilations ?? false;
     int    maxN     = maxNote ?? 0;
+    int    minN     = minNote ?? 0;
     string typ      = (headTyp ?? "S").Trim().ToUpper() == "L" ? "L" : "S";
 
-    string catFilter  = inclComp
+    string catFilter    = inclComp
         ? "LTRIM(RTRIM(ISNULL(h.CDHeadCat,''))) IN ('O','C')"
         : "LTRIM(RTRIM(ISNULL(h.CDHeadCat,''))) = 'O'";
-    string noteFilter = maxN > 0 ? "AND ISNULL(s.CDSongNote,0) <= @MaxNote" : "";
+    string noteFilter    = maxN > 0 ? "AND ISNULL(s.CDSongNote,0) <= @MaxNote" : "";
+    string noteMinFilter = minN > 0 ? "AND ISNULL(s.CDSongNote,0) >= @MinNote" : "";
+    string playedFilter  = (played ?? 0) switch {
+        1 => "AND ISNULL(s.CDSongCount, 0) = 0",
+        2 => "AND ISNULL(s.CDSongCount, 0) > 0",
+        _ => ""
+    };
+
+    // OR-Bedingung: Artist ODER Genres
+    var orParts = new List<string>();
+    if (hasArtist) orParts.Add("(RTRIM(a.CDArtistName) = @Artist OR RTRIM(a.CDArtistSort) = @Artist)");
+    if (hasGenres)
+    {
+        var genreConds = genreList.Select((_, i) => $"RTRIM(h.CDHeadGenre) LIKE '%' + @Genre{i} + '%'");
+        orParts.Add($"({string.Join(" OR ", genreConds)})");
+    }
+    string sourceFilter = string.Join(" OR ", orParts);
 
     await using var conn = NewConn();
     await conn.OpenAsync();
@@ -1202,15 +1239,20 @@ app.MapGet("/api/generator/songs", async (string? artist, string? headTyp, bool?
         FROM   CDSong   s
         JOIN   CDHead   h  ON s.CDHeadId   = h.CDHeadId
         JOIN   CDArtist a  ON h.CDArtistId = a.CDArtistId
-        WHERE  (RTRIM(a.CDArtistName) = @Artist OR RTRIM(a.CDArtistSort) = @Artist)
+        WHERE  ({sourceFilter})
         AND    LTRIM(RTRIM(ISNULL(h.CDHeadTyp,''))) = @HeadTyp
         AND    {catFilter}
         {noteFilter}
+        {noteMinFilter}
+        {playedFilter}
         ORDER BY h.CDHeadJahr, h.CDHeadTitel, s.CDSongTrackNum";
 
-    cmd.Parameters.AddWithValue("@Artist",  artist.Trim());
+    if (hasArtist) cmd.Parameters.AddWithValue("@Artist", artist!.Trim());
+    for (int i = 0; i < genreList.Length; i++)
+        cmd.Parameters.AddWithValue($"@Genre{i}", genreList[i]);
     cmd.Parameters.AddWithValue("@HeadTyp", typ);
     if (maxN > 0) cmd.Parameters.AddWithValue("@MaxNote", maxN);
+    if (minN > 0) cmd.Parameters.AddWithValue("@MinNote", minN);
 
     var tracks = new List<object>();
     int nr = 1;
@@ -1229,6 +1271,14 @@ app.MapGet("/api/generator/songs", async (string? artist, string? headTyp, bool?
             albumId  = r.IsDBNull(7) ? 0 : Convert.ToInt32(r[7]),
             trackNum = Convert.ToInt32(r[8]),
         });
+
+    // Zufällige Auswahl wenn maxSongs gesetzt
+    int limit = maxSongs ?? 0;
+    if (limit > 0 && tracks.Count > limit)
+    {
+        var rng = new Random();
+        tracks = tracks.OrderBy(_ => rng.Next()).Take(limit).ToList();
+    }
 
     return Results.Json(tracks);
 });
@@ -1342,6 +1392,35 @@ async Task<bool> IsInBgplAsync(int songId)
     cmd.Parameters.AddWithValue("@s", songId);
     cmd.Parameters.AddWithValue("@tag", BgplTag);
     return Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 1;
+}
+
+// Liefert den rohen CDSongFlags-String eines Songs (z.B. "$BGPL$$HOFBL$"), oder null.
+async Task<string?> GetSongFlagsAsync(int songId)
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = "SELECT CDSongFlags FROM CDSong WHERE CDSongId=@s";
+    cmd.Parameters.AddWithValue("@s", songId);
+    var v = await cmd.ExecuteScalarAsync();
+    return v is null || v is DBNull ? null : v.ToString();
+}
+
+// Liefert die CDGenreGroup des Albums zum Song, oder null wenn nicht zugeordnet.
+async Task<string?> GetSongGenreGroupAsync(int songId)
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SELECT TOP 1 RTRIM(ISNULL(g.CDGenreGroup, ''))
+        FROM   CDSong  s
+        JOIN   CDHead  h ON s.CDHeadId = h.CDHeadId
+        LEFT JOIN CDGenre g ON RTRIM(h.CDHeadGenre) = RTRIM(g.CDGenreName)
+        WHERE  s.CDSongId = @s";
+    cmd.Parameters.AddWithValue("@s", songId);
+    var v = await cmd.ExecuteScalarAsync();
+    return v is null || v is DBNull ? null : v.ToString()?.Trim();
 }
 
 // Fügt den Song zur BGPL hinzu: Flag setzen + Detail-Zeile anlegen (atomar). Liefert
@@ -1487,6 +1566,64 @@ app.MapDelete("/api/songs/{songId:int}/bgpl", async (int songId) =>
     return r is null ? Results.NotFound() : Results.Json(new { songId, bgpl = r.Value });
 });
 
+// ── POST /api/songs/{id}/set-flag ────────────────────────────────────────────────
+// Setzt oder entfernt ein beliebiges Flag in CDSongFlags (z.B. $HOFBL$).
+// Für HOF-SmartRule-Playlists: kein PlaylistDetailClaude-Eintrag nötig, die SmartRule
+// wertet CDSongFlags direkt aus.
+app.MapPost("/api/songs/{songId:int}/set-flag", async (int songId, SetFlagDto body) =>
+{
+    if (string.IsNullOrWhiteSpace(body.Flag)) return Results.BadRequest(new { error = "Flag fehlt" });
+    var tag = body.Flag.Trim();
+
+    // Genre-Validierung beim Hinzufügen: Song muss zur Genre-Gruppe der Playlist passen.
+    if (!body.Remove && body.PlaylistId.HasValue)
+    {
+        // GenreGroups der Playlist aus PlaylistSelect-XML lesen
+        string? playlistGenreGroups = null;
+        await using (var connP = NewConn())
+        {
+            await connP.OpenAsync();
+            await using var cmdP = connP.CreateCommand();
+            cmdP.CommandText = "SELECT CAST(PlaylistSelect AS NVARCHAR(MAX)) FROM PlaylistClaude WHERE PlaylistId=@p";
+            cmdP.Parameters.AddWithValue("@p", body.PlaylistId.Value);
+            var pv = await cmdP.ExecuteScalarAsync();
+            if (pv is not null && pv is not DBNull)
+            {
+                var mgg = System.Text.RegularExpressions.Regex.Match(pv.ToString()!, @"GenreGroups=""([^""]+)""");
+                if (mgg.Success) playlistGenreGroups = mgg.Groups[1].Value;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(playlistGenreGroups))
+        {
+            var songGenreGroup = await GetSongGenreGroupAsync(songId);
+            var allowed = playlistGenreGroups
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            bool match = !string.IsNullOrWhiteSpace(songGenreGroup) &&
+                         allowed.Any(g => string.Equals(g, songGenreGroup, StringComparison.OrdinalIgnoreCase));
+            if (!match)
+                return Results.UnprocessableEntity(new
+                {
+                    error    = "Genre passt nicht",
+                    songGenreGroup,
+                    required = playlistGenreGroups
+                });
+        }
+    }
+
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    if (body.Remove)
+        cmd.CommandText = "UPDATE CDSong SET CDSongFlags = RTRIM(REPLACE(ISNULL(CDSongFlags,''),@tag,'')) WHERE CDSongId=@s";
+    else
+        cmd.CommandText = "UPDATE CDSong SET CDSongFlags = RTRIM(ISNULL(CDSongFlags,''))+@tag WHERE CDSongId=@s AND (CDSongFlags IS NULL OR CDSongFlags NOT LIKE '%'+@tag+'%')";
+    cmd.Parameters.AddWithValue("@s", songId);
+    cmd.Parameters.AddWithValue("@tag", tag);
+    await cmd.ExecuteNonQueryAsync();
+    return Results.Ok(new { songId, flag = tag, removed = body.Remove });
+});
+
 // ── Relay: Player ⇄ Fernbedienung (Short-Poll) ───────────────────────────────────
 // Player meldet "läuft gerade".
 app.MapPost("/api/remote/nowplaying", (NowPlayingDto np) =>
@@ -1511,10 +1648,12 @@ app.MapGet("/api/remote/poll", async () =>
 app.MapGet("/api/remote/state", async () =>
 {
     var np = remote.NowPlaying;
-    int? proposal = (np is not null && np.SongId > 0) ? await OpenProposalAsync(np.SongId) : null;
-    bool bgpl     = (np is not null && np.SongId > 0) && await IsInBgplAsync(np.SongId);
+    int? proposal  = (np is not null && np.SongId > 0) ? await OpenProposalAsync(np.SongId) : null;
+    bool bgpl      = (np is not null && np.SongId > 0) && await IsInBgplAsync(np.SongId);
+    string? sFlags      = (np is not null && np.SongId > 0) ? await GetSongFlagsAsync(np.SongId)      : null;
+    string? sGenreGroup = (np is not null && np.SongId > 0) ? await GetSongGenreGroupAsync(np.SongId) : null;
     var online = (DateTime.UtcNow - remote.NowPlayingAt).TotalSeconds < 10;
-    return Results.Json(new { online, nowPlaying = np, proposal, bgpl });
+    return Results.Json(new { online, nowPlaying = np, proposal, bgpl, songFlags = sFlags, songGenreGroup = sGenreGroup });
 });
 
 // Fernbedienung sendet ein Kommando. Transport → Queue für den Player.
@@ -1724,6 +1863,7 @@ app.Run();
 record ReRateDto(int Note);
 record CommandDto(string? Cmd);
 record NowPlayingDto(int SongId, int HeadId, string? Title, string? Artist, string? Album, int Note, double Pos, double Dur);
+record SetFlagDto(string Flag, bool Remove, int? PlaylistId);
 
 // Hält den letzten gemeldeten Player-Zustand und die noch offenen Transport-Kommandos.
 class RemoteHub

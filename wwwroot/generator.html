@@ -95,7 +95,8 @@ header h1 .web{color:var(--play)}
 .note-btn:hover{background:var(--card);color:var(--text)}
 .note-btn.active{background:var(--gold);color:#000;border-color:var(--gold)}
 #note-opts{display:none}
-#note-opts.visible{display:flex;align-items:center;gap:8px}
+#note-opts.visible{display:flex;flex-direction:column;gap:6px}
+.note-opts-row{display:flex;align-items:center;gap:8px}
 
 /* Action buttons */
 .action-btns{display:flex;gap:8px;flex-wrap:wrap}
@@ -166,6 +167,42 @@ header h1 .web{color:var(--play)}
   border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;
 }
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Genre-Picker ── */
+.genre-open-btn{
+  font-size:12px;padding:6px 12px;border-radius:6px;cursor:pointer;
+  border:1px solid var(--border);color:var(--muted);background:var(--bg);transition:all .15s;
+}
+.genre-open-btn:hover{color:var(--text);border-color:var(--muted)}
+.genre-open-btn.has-sel{border-color:var(--accent);color:var(--accent-h)}
+.genre-badge{background:var(--accent);color:#fff;font-size:10px;font-weight:700;
+  padding:1px 6px;border-radius:10px;display:none}
+.genre-badge.on{display:inline}
+#genre-overlay{display:none;position:fixed;inset:0;z-index:300}
+#genre-overlay.open{display:block}
+#genre-popup{
+  display:none;position:fixed;z-index:301;
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:8px;padding:14px;width:min(520px,92vw);
+  max-height:65vh;overflow-y:auto;
+}
+#genre-popup.open{display:block}
+.genre-popup-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.genre-popup-head span{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.genre-popup-close{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:0 4px;line-height:1}
+.genre-popup-close:hover{color:var(--text)}
+.genre-row{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.genre-row+.genre-row{margin-top:6px}
+.genre-row-label{font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.5px;white-space:nowrap;margin-right:2px}
+.g-chip{font-size:11px;padding:3px 9px;border-radius:12px;cursor:pointer;
+  border:1px solid var(--border);color:var(--muted);background:var(--bg);
+  transition:all .12s;white-space:nowrap;user-select:none}
+.g-chip:hover{color:var(--text);border-color:var(--muted)}
+.g-chip.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.g-chip.partial{border-color:var(--accent);color:var(--accent-h)}
+.g-chip.grp{font-weight:700;font-size:10px;letter-spacing:.4px;text-transform:uppercase}
+.g-chip.excluded{background:var(--danger);border-color:var(--danger);color:#fff;text-decoration:line-through}
+.genre-badge.excl{background:var(--danger)}
 
 /* ── Player bar ── */
 #player-bar{
@@ -290,15 +327,36 @@ header h1 .web{color:var(--play)}
           <input type="checkbox" id="chk-comp"> Compilationen einschließen
         </label>
         <div id="note-opts">
-          <span style="font-size:12px;color:var(--muted)">Note:</span>
-          <div class="note-btns">
-            <button class="note-btn active" data-note="0">Alle</button>
-            <button class="note-btn" data-note="1">1</button>
-            <button class="note-btn" data-note="2">&#8804; 2</button>
-            <button class="note-btn" data-note="3">&#8804; 3</button>
+          <div class="note-opts-row">
+            <span style="font-size:12px;color:var(--muted)">Note:</span>
+            <div class="note-btns">
+              <button class="note-btn active" data-min="0" data-max="0">Alle</button>
+              <button class="note-btn" data-min="0" data-max="1">1</button>
+              <button class="note-btn" data-min="0" data-max="2">&#8804;&#8201;2</button>
+              <button class="note-btn" data-min="2" data-max="2">=&#8201;2</button>
+              <button class="note-btn" data-min="0" data-max="3">&#8804;&#8201;3</button>
+            </div>
+          </div>
+          <div class="note-opts-row">
+            <span style="font-size:12px;color:var(--muted)">Gespielt:</span>
+            <div class="note-btns">
+              <button class="note-btn played-btn active" data-played="0">Alle</button>
+              <button class="note-btn played-btn" data-played="1">Neu</button>
+              <button class="note-btn played-btn" data-played="2">Gehört</button>
+            </div>
+          </div>
+          <div class="note-opts-row">
+            <span style="font-size:12px;color:var(--muted)">Max.&#160;Songs:</span>
+            <input type="number" id="f-limit" min="10" max="9999" value="500" style="width:72px;text-align:right;padding:4px 8px">
           </div>
         </div>
       </div>
+    </div>
+    <div class="field">
+      <label>Genre</label>
+      <button type="button" class="genre-open-btn" id="genre-btn">
+        Genres&#160;<span class="genre-badge" id="genre-badge"></span>
+      </button>
     </div>
     <div class="action-btns" style="margin-top:auto">
       <button class="btn" id="btn-load" disabled>Laden</button>
@@ -349,6 +407,17 @@ header h1 .web{color:var(--play)}
 
 </div><!-- #app -->
 
+<!-- Genre-Popup -->
+<div id="genre-overlay"></div>
+<div id="genre-popup">
+  <div class="genre-popup-head">
+    <span>Genre-Filter</span>
+    <button class="genre-popup-close" id="genre-popup-close">&#10005;</button>
+  </div>
+  <div class="genre-row" id="genre-groups"><span class="genre-row-label">GRUPPE</span></div>
+  <div class="genre-row" id="genre-chips"><span class="genre-row-label">EINZELN</span></div>
+</div>
+
 <!-- Screensaver -->
 <div id="screensaver">
   <div id="ss-bg"></div>
@@ -382,13 +451,17 @@ const BASE = '';
 let songs    = [];
 let queue    = [];
 let qPos     = -1;
-let curMode  = 'studio';
-let selNote  = 0;
+let curMode    = 'studio';
+let selNote    = 0;
+let selNoteMin = 0;
+let selPlayed  = 0;
 let acTimer  = null;
 let acItems  = [];
 let acIdx    = -1;
 let selectedArtist = '';
 let seekDragging   = false;
+let G_GROUPS       = [];
+let genreGenres    = [];
 
 // ── DOM refs ───────────────────────────────────────────────────────────────────
 const audio       = document.getElementById('audio');
@@ -435,10 +508,16 @@ function noteDots(note) {
     h += `<span class="note-dot${i <= note ? ' on' : ''}"></span>`;
   return h;
 }
+function canLoad() { return !!selectedArtist || genreGenres.length > 0; }
 function setActionBtns(enabled) {
-  btnLoad.disabled    = !enabled;
-  btnPlay.disabled    = !enabled || !songs.length;
-  btnShuffle.disabled = !enabled || !songs.length;
+  const e = enabled && canLoad();
+  btnLoad.disabled    = !e;
+  btnPlay.disabled    = !e || !songs.length;
+  btnShuffle.disabled = !e || !songs.length;
+}
+function updateLoadBtns() { setActionBtns(canLoad()); }
+function updateNoteOptsVisibility() {
+  noteOpts.classList.toggle('visible', curMode === 'setlist' || curMode === 'live' || genreGenres.length > 0);
 }
 
 // ── Artist autocomplete ────────────────────────────────────────────────────────
@@ -518,15 +597,24 @@ document.querySelectorAll('.mode-btn-g').forEach(btn => {
     document.querySelectorAll('.mode-btn-g').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     curMode = btn.dataset.mode;
-    noteOpts.classList.toggle('visible', curMode === 'setlist' || curMode === 'live');
+    updateNoteOptsVisibility();
   });
 });
 
-document.querySelectorAll('.note-btn').forEach(btn => {
+document.querySelectorAll('.note-btn:not(.played-btn)').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.note-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.note-btn:not(.played-btn)').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    selNote = +btn.dataset.note;
+    selNote    = +(btn.dataset.max ?? 0);
+    selNoteMin = +(btn.dataset.min ?? 0);
+  });
+});
+
+document.querySelectorAll('.played-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.played-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selPlayed = +btn.dataset.played;
   });
 });
 
@@ -536,10 +624,14 @@ btnPlay.addEventListener('click', () => loadSongs(false));
 btnShuffle.addEventListener('click', () => loadSongs(true));
 
 async function loadSongs(autoPlay = null) {
-  if (!selectedArtist) return;
-  const inclComp = document.getElementById('chk-comp').checked;
-  const maxNote  = (curMode === 'setlist' || curMode === 'live') ? selNote : 0;
-  const headTyp  = curMode === 'live' ? 'L' : 'S';
+  if (!canLoad()) return;
+  const inclComp   = document.getElementById('chk-comp').checked;
+  const noteActive = curMode === 'setlist' || curMode === 'live' || genreGenres.length > 0;
+  const maxNote    = noteActive ? selNote    : 0;
+  const minNote    = noteActive ? selNoteMin : 0;
+  const played     = selPlayed;
+  const maxSongs   = +(document.getElementById('f-limit')?.value || 0);
+  const headTyp    = curMode === 'live' ? 'L' : 'S';
 
   loadingEl.classList.add('visible');
   emptyState.style.display = 'none';
@@ -547,8 +639,9 @@ async function loadSongs(autoPlay = null) {
   resultsInfo.classList.remove('visible');
 
   try {
-    const url = `${BASE}/api/generator/songs?artist=${encodeURIComponent(selectedArtist)}`
-              + `&headTyp=${headTyp}&includeCompilations=${inclComp}&maxNote=${maxNote}`;
+    let url = `${BASE}/api/generator/songs?headTyp=${headTyp}&includeCompilations=${inclComp}&maxNote=${maxNote}&minNote=${minNote}&played=${played}&maxSongs=${maxSongs}`;
+    if (selectedArtist) url += `&artist=${encodeURIComponent(selectedArtist)}`;
+    if (genreGenres.length) url += `&genres=${encodeURIComponent(genreGenres.join(','))}`;
     const res  = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
     songs = await res.json();
@@ -946,7 +1039,101 @@ audio.addEventListener('play', () => {
 audio.addEventListener('pause', () => clearInterval(rcInterval));
 audio.addEventListener('ended', () => clearInterval(rcInterval));
 
+// ── Genre-Picker ───────────────────────────────────────────────────────────────
+function buildGenrePicker() {
+  const groupsEl = document.getElementById('genre-groups');
+  const chipsEl  = document.getElementById('genre-chips');
+  G_GROUPS.forEach(({ group, genres }) => {
+    const btn = document.createElement('button');
+    btn.className   = 'g-chip grp';
+    btn.textContent = group;
+    btn.dataset.group = group;
+    btn.title = genres.join(', ');
+    btn.addEventListener('click', () => {
+      const inCnt = genres.filter(g => genreGenres.includes(g)).length;
+      if (inCnt === genres.length) {
+        genreGenres = genreGenres.filter(g => !genres.includes(g));
+      } else {
+        genreGenres = [...new Set([...genreGenres, ...genres])];
+      }
+      refreshGenrePicker();
+      updateGenreBadge();
+      updateLoadBtns();
+      updateNoteOptsVisibility();
+    });
+    groupsEl.appendChild(btn);
+  });
+  const allGenres = [...new Set(G_GROUPS.flatMap(g => g.genres))].sort();
+  allGenres.forEach(g => {
+    const btn = document.createElement('button');
+    btn.className   = 'g-chip';
+    btn.textContent = g;
+    btn.dataset.genre = g;
+    btn.addEventListener('click', () => {
+      if (genreGenres.includes(g)) genreGenres = genreGenres.filter(x => x !== g);
+      else genreGenres = [...genreGenres, g];
+      refreshGenrePicker();
+      updateGenreBadge();
+      updateLoadBtns();
+      updateNoteOptsVisibility();
+    });
+    chipsEl.appendChild(btn);
+  });
+}
+function refreshGenrePicker() {
+  document.querySelectorAll('#genre-groups .g-chip.grp').forEach(btn => {
+    const genres = G_GROUPS.find(g => g.group === btn.dataset.group)?.genres ?? [];
+    const inCnt  = genres.filter(g => genreGenres.includes(g)).length;
+    btn.classList.toggle('active',  inCnt === genres.length && genres.length > 0);
+    btn.classList.toggle('partial', inCnt > 0 && inCnt < genres.length);
+  });
+  document.querySelectorAll('#genre-chips .g-chip[data-genre]').forEach(btn => {
+    btn.classList.toggle('active', genreGenres.includes(btn.dataset.genre));
+  });
+}
+function updateGenreBadge() {
+  const badge = document.getElementById('genre-badge');
+  const btn   = document.getElementById('genre-btn');
+  const cnt   = genreGenres.length;
+  badge.textContent = cnt > 0 ? `+${cnt}` : '';
+  badge.className   = cnt > 0 ? 'genre-badge on' : 'genre-badge';
+  btn.classList.toggle('has-sel', cnt > 0);
+}
+function openGenrePopup(anchorEl) {
+  refreshGenrePicker();
+  const popup = document.getElementById('genre-popup');
+  popup.classList.add('open');
+  document.getElementById('genre-overlay').classList.add('open');
+  const r = anchorEl.getBoundingClientRect();
+  popup.style.top  = (r.bottom + 6) + 'px';
+  popup.style.left = r.left + 'px';
+  requestAnimationFrame(() => {
+    const pr = popup.getBoundingClientRect();
+    if (pr.right > window.innerWidth - 10)
+      popup.style.left = Math.max(10, window.innerWidth - pr.width - 10) + 'px';
+  });
+}
+function closeGenrePopup() {
+  document.getElementById('genre-popup').classList.remove('open');
+  document.getElementById('genre-overlay').classList.remove('open');
+}
+async function loadGenres() {
+  try {
+    const res = await fetch(`${BASE}/api/genres/groups`);
+    G_GROUPS = await res.json();
+    buildGenrePicker();
+  } catch(e) { console.warn('Genres konnten nicht geladen werden:', e); }
+}
+
+document.getElementById('genre-btn').addEventListener('click', e => {
+  e.stopPropagation(); openGenrePopup(e.currentTarget);
+});
+document.getElementById('genre-popup-close').addEventListener('click', closeGenrePopup);
+document.getElementById('genre-overlay').addEventListener('click', closeGenrePopup);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGenrePopup(); });
+
 // ── Init ───────────────────────────────────────────────────────────────────────
+loadGenres();
 fArtist.focus();
 </script>
 </body>
