@@ -345,7 +345,7 @@ header h1 .web{color:var(--play)}
               <button class="note-btn played-btn" data-played="2">Gehört</button>
             </div>
           </div>
-          <div class="note-opts-row">
+          <div class="note-opts-row" id="limit-row" style="display:none">
             <span style="font-size:12px;color:var(--muted)">Max.&#160;Songs:</span>
             <input type="number" id="f-limit" min="10" max="9999" value="500" style="width:72px;text-align:right;padding:4px 8px">
           </div>
@@ -517,7 +517,10 @@ function setActionBtns(enabled) {
 }
 function updateLoadBtns() { setActionBtns(canLoad()); }
 function updateNoteOptsVisibility() {
-  noteOpts.classList.toggle('visible', curMode === 'setlist' || curMode === 'live' || genreGenres.length > 0);
+  const hasGenres = genreGenres.length > 0;
+  noteOpts.classList.toggle('visible', curMode === 'setlist' || curMode === 'live' || hasGenres);
+  const limitRow = document.getElementById('limit-row');
+  if (limitRow) limitRow.style.display = hasGenres ? '' : 'none';
 }
 
 // ── Artist autocomplete ────────────────────────────────────────────────────────
@@ -626,11 +629,12 @@ btnShuffle.addEventListener('click', () => loadSongs(true));
 async function loadSongs(autoPlay = null) {
   if (!canLoad()) return;
   const inclComp   = document.getElementById('chk-comp').checked;
-  const noteActive = curMode === 'setlist' || curMode === 'live' || genreGenres.length > 0;
+  const hasGenres  = genreGenres.length > 0;
+  const noteActive = curMode === 'setlist' || curMode === 'live' || hasGenres;
   const maxNote    = noteActive ? selNote    : 0;
   const minNote    = noteActive ? selNoteMin : 0;
-  const played     = selPlayed;
-  const maxSongs   = +(document.getElementById('f-limit')?.value || 0);
+  const played     = noteActive ? selPlayed  : 0;
+  const maxSongs   = hasGenres ? +(document.getElementById('f-limit')?.value || 0) : 0;
   const headTyp    = curMode === 'live' ? 'L' : 'S';
 
   loadingEl.classList.add('visible');
