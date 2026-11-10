@@ -4,7 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Remote">
 <meta name="theme-color" content="#0c0e13">
+<link rel="manifest" href="/manifest-remote.json">
+<link rel="apple-touch-icon" href="/icons/remote-192.png">
 <title>YAMS Fernbedienung</title>
 <style>
   :root{ --bg:#0c0e13; --card:#161a22; --line:#262c38; --fg:#eef1f6; --dim:#8a93a3;
@@ -246,6 +250,8 @@ keepAwake();
 loadHofPlaylists();
 poll();
 setInterval(poll, 1000);
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 </script>
 </body>
 </html>
