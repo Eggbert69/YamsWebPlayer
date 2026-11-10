@@ -43,11 +43,28 @@
   .rate button{flex:1;height:66px;font-size:21px}
   .rate .up{border-color:#2f6b35}
   .rate .down{border-color:#6b2f2f}
-  .nums{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:20px}
-  .nums button{height:58px;font-size:22px}
+  .section{background:var(--card);border:1px solid var(--line);border-radius:16px;
+           padding:12px 14px;margin-bottom:14px}
+  .section .label{margin-bottom:9px}
+  .section .rate{margin-bottom:0}
+  .section select{width:100%;background:#0c0e13;border:1px solid var(--line);border-radius:10px;
+                  color:var(--fg);font-family:inherit;font-size:15px;font-weight:600;
+                  padding:0 12px;height:46px;margin-bottom:10px;
+                  -webkit-appearance:none;appearance:none;
+                  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a93a3' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+                  background-repeat:no-repeat;background-position:right 12px center}
   .transport{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
   .transport button{height:74px;font-size:27px}
   .transport .stop{border-color:#6b2f2f}
+  .section-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+  .section-head .label{margin-bottom:0}
+  .tog{position:relative;display:inline-block;width:38px;height:22px;cursor:pointer;flex-shrink:0}
+  .tog input{opacity:0;width:0;height:0;position:absolute}
+  .tog-track{position:absolute;inset:0;background:#2a3040;border-radius:999px;transition:background .2s}
+  .tog input:checked ~ .tog-track{background:var(--good)}
+  .tog-track::after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;
+    background:#fff;border-radius:50%;transition:transform .2s}
+  .tog input:checked ~ .tog-track::after{transform:translateX(16px)}
 </style>
 </head>
 <body>
@@ -70,18 +87,31 @@
     <button class="up"   onpointerdown="send('note:up')">&#9650; besser</button>
     <button class="down" onpointerdown="send('note:down')">&#9660; schlechter</button>
   </div>
-  <div class="nums">
-    <button onpointerdown="send('note:set:1')">1</button>
-    <button onpointerdown="send('note:set:2')">2</button>
-    <button onpointerdown="send('note:set:3')">3</button>
-    <button onpointerdown="send('note:set:4')">4</button>
-    <button onpointerdown="send('note:set:5')">5</button>
+
+  <div class="section">
+    <div class="label">Background-Playlist <span class="pill" id="bgpl-pill" style="display:none">&#10003; enthalten</span></div>
+    <div class="rate">
+      <button class="up"   onpointerdown="send('bgpl:add')">BGPL &#10133;</button>
+      <button class="down" onpointerdown="send('bgpl:remove')">BGPL &#10134;</button>
+    </div>
   </div>
 
-  <div class="label">Background-Playlist <span class="pill" id="bgpl-pill" style="display:none">&#10003; enthalten</span></div>
-  <div class="rate">
-    <button class="up"   onpointerdown="send('bgpl:add')">BGPL &#10133;</button>
-    <button class="down" onpointerdown="send('bgpl:remove')">BGPL &#10134;</button>
+  <div class="section">
+    <div class="section-head">
+      <div class="label">Hall of Fame <span class="pill" id="hof-pill" style="display:none">&#10003; enthalten</span></div>
+      <label class="tog" title="HOF aktivieren">
+        <input type="checkbox" id="hof-active" onchange="hofActiveChange()">
+        <span class="tog-track"></span>
+      </label>
+    </div>
+    <div id="hof-body" style="display:none">
+      <select id="hof-select" onchange="hofSelChange()"></select>
+      <div id="hof-genre-warn" style="display:none;font-size:13px;color:#f97316;margin-bottom:8px">Genre passt nicht</div>
+      <div class="rate">
+        <button class="up"   onpointerdown="hofSet(false)">HOF &#10133;</button>
+        <button class="down" onpointerdown="hofSet(true)">HOF &#10134;</button>
+      </div>
+    </div>
   </div>
 
   <div class="label">Wiedergabe</div>
@@ -96,15 +126,72 @@
 <script>
 const $ = id => document.getElementById(id);
 let wakeLock = null;
+let hofPlaylists = [];
+let currentSongId = null;
+let currentSongFlags = '';
+let currentGenreGroup = '';
 
 async function send(cmd) {
   try { await fetch('/api/remote/command', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ cmd }) }); }
   catch {}
-  setTimeout(poll, 150);   // Zustand gleich nach dem Kommando aktualisieren
+  setTimeout(poll, 150);
 }
 
 function noteSpan(n, cls) {
   return n > 0 ? `<span class="note nt${n} ${cls||''}">Note ${n}</span>` : `<span class="${cls||''}">&#8212;</span>`;
+}
+
+function selectedHof() {
+  const sel = $('hof-select');
+  if (!sel || sel.selectedIndex < 0 || hofPlaylists.length === 0) return null;
+  return hofPlaylists[sel.selectedIndex] || null;
+}
+
+function hofActiveChange() {
+  const active = $('hof-active').checked;
+  $('hof-body').style.display = active ? '' : 'none';
+  if (active) hofSelChange();
+}
+
+function hofSelChange() {
+  const hof = selectedHof();
+  const inHof   = hof && hof.songFlag    ? currentSongFlags.includes(hof.songFlag) : false;
+  const allowed = hof && hof.genreGroups ? hof.genreGroups.split(',').map(g => g.trim()) : [];
+  const fits    = allowed.length === 0 || (currentGenreGroup && allowed.some(g => g.toLowerCase() === currentGenreGroup.toLowerCase()));
+  $('hof-pill').style.display = inHof ? '' : 'none';
+  const warn = $('hof-genre-warn');
+  if (warn) warn.style.display = (!fits && currentSongId) ? '' : 'none';
+}
+
+async function hofSet(remove) {
+  const hof = selectedHof();
+  if (!hof || !hof.songFlag || !currentSongId) return;
+  try {
+    const res = await fetch(`/api/songs/${currentSongId}/set-flag`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ flag: hof.songFlag, remove, playlistId: hof.id })
+    });
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}));
+      const warn = $('hof-genre-warn');
+      if (warn) { warn.textContent = `Genre passt nicht (${d.songGenreGroup || '?'} ≠ ${d.required || hof.genreGroups || '?'})`; warn.style.display = ''; }
+      return;
+    }
+  } catch {}
+  setTimeout(poll, 150);
+}
+
+async function loadHofPlaylists() {
+  try {
+    const all = await (await fetch('/api/playlists')).json();
+    hofPlaylists = all.filter(p => p.songFlag && p.songFlag.toUpperCase().startsWith('$HOF'));
+    const sel = $('hof-select');
+    if (hofPlaylists.length) {
+      sel.innerHTML = hofPlaylists.map(p => `<option>${p.name}</option>`).join('');
+    } else {
+      sel.innerHTML = '<option disabled>keine HOF-Playlists vorhanden</option>';
+    }
+  } catch {}
 }
 
 function render(st) {
@@ -121,6 +208,11 @@ function render(st) {
     $('title').textContent = '—'; $('artist').textContent = ''; $('album').textContent = '';
     $('cover').removeAttribute('src');
   }
+
+  currentSongId     = np ? np.songId : null;
+  currentSongFlags  = st ? (st.songFlags || '') : '';
+  currentGenreGroup = st ? (st.songGenreGroup || '') : '';
+
   const stored = np ? (np.note || 0) : 0;
   const prop   = st ? st.proposal : null;
   if (prop != null && prop !== stored) {
@@ -128,8 +220,9 @@ function render(st) {
   } else {
     $('noteline').innerHTML = noteSpan(stored);
   }
-  // Background-Playlist: Pille zeigen, wenn der laufende Song enthalten ist.
+
   $('bgpl-pill').style.display = (st && st.bgpl) ? '' : 'none';
+  hofSelChange();
 }
 
 async function poll() {
@@ -150,6 +243,7 @@ document.addEventListener('visibilitychange', () => {
 });
 
 keepAwake();
+loadHofPlaylists();
 poll();
 setInterval(poll, 1000);
 </script>
