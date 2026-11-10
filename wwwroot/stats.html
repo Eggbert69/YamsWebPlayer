@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YAMS Statistik</title>
+<style>
+  @font-face{font-family:'Barlow Condensed';src:url('/fonts/BarlowCondensed-600.woff2') format('woff2');font-weight:600;font-display:swap}
+  @font-face{font-family:'Barlow Condensed';src:url('/fonts/BarlowCondensed-700.woff2') format('woff2');font-weight:700;font-display:swap}
+  @font-face{font-family:'Barlow Condensed';src:url('/fonts/BarlowCondensed-800.woff2') format('woff2');font-weight:800;font-display:swap}
+
+  :root{
+    --bg:#0c0e13; --panel:#12161d; --panel2:#161b24; --line:#242a35;
+    --fg:#eef1f6; --dim:#8a93a3; --dim2:#5c6675; --accent:#a7e03a;
+    --n1:#22c55e; --n2:#84cc16; --n3:#eab308; --n4:#f97316; --n5:#ef4444;
+    --disp:'Barlow Condensed',Arial,sans-serif;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+       -webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums;line-height:1.5}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px 90px}
+
+  .top{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+       padding:26px 0 8px;margin-bottom:4px}
+  .top .back{font-size:14px;color:var(--dim);text-decoration:none}
+  .top .back:hover{color:var(--fg)}
+  .kicker{font-family:var(--disp);font-weight:700;font-size:17px;letter-spacing:.01em;color:var(--accent)}
+
+  /* ── Filterleiste ────────────────────────────────────────── */
+  .filterbar{position:sticky;top:0;z-index:20;background:rgba(12,14,19,.94);
+             backdrop-filter:blur(8px);border-bottom:1px solid var(--line);
+             padding:12px 0;margin-bottom:30px;display:flex;flex-wrap:wrap;gap:10px 26px;align-items:center}
+  .fgroup{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .fgroup .glab{font-size:12px;color:var(--dim);font-weight:600;margin-right:2px}
+  .fchip{font-family:var(--sans);font-size:13px;padding:4px 11px;border-radius:999px;
+         border:1px solid var(--line);background:var(--panel);color:var(--dim);cursor:pointer}
+  .fchip:hover{color:var(--fg)}
+  .fchip.on{background:var(--accent);color:#0c0e13;border-color:var(--accent);font-weight:600}
+  .fchip .c{opacity:.6;font-size:11px;margin-left:5px}
+  .fchip.on .c{opacity:.7}
+
+  .hero h1{font-family:var(--disp);font-weight:800;font-size:clamp(40px,8vw,76px);
+           line-height:.95;letter-spacing:-.01em;margin:0 0 10px}
+  .hero p.lead{font-size:17px;color:var(--dim);max-width:60ch;margin:0 0 26px}
+  .totals{display:flex;flex-wrap:wrap;gap:30px;margin:0 0 42px}
+  .totals .t b{font-family:var(--disp);font-weight:800;font-size:34px;display:block;line-height:1}
+  .totals .t span{font-size:13px;color:var(--dim)}
+
+  section{margin:54px 0}
+  .shead{display:flex;align-items:baseline;gap:14px;margin:0 0 6px}
+  .shead h2{font-family:var(--disp);font-weight:700;font-size:30px;letter-spacing:.01em;margin:0}
+  .shead .num{font-family:var(--disp);font-weight:700;font-size:16px;color:var(--dim2)}
+  .snote{font-size:14px;color:var(--dim);max-width:62ch;margin:0 0 22px}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .cap{font-size:12.5px;color:var(--dim);margin:0 0 14px}
+  .cap b{color:var(--fg);font-weight:600}
+
+  .vbars{display:flex;align-items:flex-end;gap:10px;height:190px}
+  .vbar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:7px;height:100%}
+  .vbar .val{font-family:var(--disp);font-weight:700;font-size:15px}
+  .vbar .col{width:100%;border-radius:5px 5px 2px 2px;min-height:3px}
+  .vbar .lab{font-size:12px;color:var(--dim);text-align:center;line-height:1.15}
+  .vbar .sub{font-family:var(--disp);font-weight:700;font-size:14px}
+
+  .hrow{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;padding:5px 0}
+  .hrow .name{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+  .hrow .track{position:relative;height:9px;background:var(--panel2);border-radius:5px;grid-column:1/-1;margin-top:2px}
+  .hrow .fill{position:absolute;inset:0 auto 0 0;border-radius:5px;background:var(--accent);opacity:.85}
+  .hrow .mv{font-family:var(--disp);font-weight:700;font-size:15px;white-space:nowrap}
+  .list{display:flex;flex-direction:column}
+  .list .li{border-top:1px solid var(--line);padding:9px 0}
+  .list .li:first-child{border-top:0}
+  .li .top-line{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+  .li .rank{color:var(--dim2);font-family:var(--disp);font-weight:700;font-size:14px;width:1.6em;flex:0 0 auto}
+
+  .chip{display:inline-block;font-family:var(--disp);font-weight:700;font-size:13px;
+        padding:1px 8px;border-radius:999px;color:#0c0e13}
+  .meta{font-size:12.5px;color:var(--dim)}
+
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:8px 6px;font-size:14px;border-top:1px solid var(--line)}
+  th{color:var(--dim);font-weight:600;font-size:12.5px;border-top:0}
+  td.num,th.num{text-align:right}
+  td.r{color:var(--dim2);font-family:var(--disp);font-weight:700}
+
+  .dq{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--line);padding:11px 0}
+  .dq:first-child{border-top:0}
+  .dq .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+  .dq .lbl{flex:1;font-size:14px}
+  .dq .n{font-family:var(--disp);font-weight:700;font-size:17px}
+  .ok{color:var(--n1)} .warn{color:#f6c445}
+
+  .loading{color:var(--dim);padding:60px 0;font-size:15px}
+  #content{transition:opacity .15s}
+  @media(max-width:620px){ .grid2{grid-template-columns:1fr} .vbars{height:150px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="kicker">YAMS Auswertung</span>
+    <a class="back" href="/">&#8592; zur&uuml;ck zum Player</a>
+  </div>
+
+  <div id="filterbar" class="filterbar"></div>
+  <div id="content"><div class="loading">Kennzahlen werden berechnet&#8230;</div></div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const fmt = n => (n==null?'–':Number(n).toLocaleString('de-DE'));
+const dec = (n,d=2) => n==null?'–':Number(n).toLocaleString('de-DE',{minimumFractionDigits:d,maximumFractionDigits:d});
+const NCOL = {1:'var(--n1)',2:'var(--n2)',3:'var(--n3)',4:'var(--n4)',5:'var(--n5)'};
+const ncol = v => NCOL[Math.min(5,Math.max(1,Math.round(v)))] || 'var(--dim)';
+const esc = s => (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+const CATLAB = {O:'Original', C:'Soundtrack', M:'Mix', S:'Sampler', B:'Bootleg'};
+const TYPLAB = {S:'Studio', L:'Live', M:'Mixtape'};
+
+let FACETS = null;
+const FILTER = {cat:new Set(), typ:new Set()};
+
+// ── Filter ───────────────────────────────────────────────────
+function labelOf(kind,code){ return (kind==='cat'?CATLAB:TYPLAB)[code] || code; }
+function qsFilter(){
+  const p = new URLSearchParams();
+  if(FILTER.cat.size && FILTER.cat.size < FACETS.cats.length) p.set('cat',[...FILTER.cat].join(','));
+  if(FILTER.typ.size && FILTER.typ.size < FACETS.typs.length) p.set('typ',[...FILTER.typ].join(','));
+  const s = p.toString(); return s?('?'+s):'';
+}
+function renderFilterBar(){
+  const grp = (title,facet,sel,kind)=>`
+    <div class="fgroup"><span class="glab">${title}</span>${facet.map(f=>`
+      <button class="fchip${sel.has(f.code)?' on':''}" data-kind="${kind}" data-code="${esc(f.code)}">${esc(labelOf(kind,f.code))}<span class="c">${fmt(f.albums)}</span></button>`).join('')}</div>`;
+  $('#filterbar').innerHTML = grp('Kategorie',FACETS.cats,FILTER.cat,'cat') + grp('Typ',FACETS.typs,FILTER.typ,'typ');
+  $('#filterbar').querySelectorAll('.fchip').forEach(b=>b.onclick=()=>toggle(b.dataset.kind,b.dataset.code));
+}
+function toggle(kind, code){
+  const set = kind==='cat'?FILTER.cat:FILTER.typ;
+  if(set.has(code)){ if(set.size<=1) return; set.delete(code); } else set.add(code);  // mind. 1 je Gruppe
+  saveFilter(); renderFilterBar(); load();
+}
+function saveFilter(){ try{ localStorage.setItem('yams-stats-filter', JSON.stringify({cat:[...FILTER.cat],typ:[...FILTER.typ]})); }catch{} }
+function loadFilterFromStorage(){
+  try{
+    const s = JSON.parse(localStorage.getItem('yams-stats-filter')||'null'); if(!s) return;
+    const cc = FACETS.cats.map(c=>c.code), tc = FACETS.typs.map(t=>t.code);
+    const c = (s.cat||[]).filter(x=>cc.includes(x)), t = (s.typ||[]).filter(x=>tc.includes(x));
+    if(c.length) FILTER.cat = new Set(c);
+    if(t.length) FILTER.typ = new Set(t);
+  }catch{}
+}
+
+// ── Laden ────────────────────────────────────────────────────
+async function bootstrap(){
+  let d;
+  try { d = await (await fetch('/api/statistics')).json(); }
+  catch { $('#content').innerHTML = errHtml(); return; }
+  FACETS = d.facets;
+  FILTER.cat = new Set(FACETS.cats.map(c=>c.code));
+  FILTER.typ = new Set(FACETS.typs.map(t=>t.code));
+  loadFilterFromStorage();
+  renderFilterBar();
+  if(qsFilter()==='') renderContent(d); else load();
+}
+async function load(){
+  const c = $('#content'); c.style.opacity = .4;
+  try { const d = await (await fetch('/api/statistics'+qsFilter())).json(); renderContent(d); }
+  catch { c.innerHTML = errHtml(); }
+  c.style.opacity = 1;
+}
+const errHtml = () => `<div class="loading">Konnte die Statistik nicht laden. Läuft der Server und ist die Datenbank erreichbar?</div>`;
+
+// ── Chart-Helfer ─────────────────────────────────────────────
+function vbars(items){
+  const max = Math.max(1, ...items.map(i=>i.val));
+  return `<div class="vbars">${items.map(i=>`
+    <div class="vbar">
+      <span class="val">${fmt(i.val)}</span>
+      <div class="col" style="height:${Math.max(3,i.val/max*140)}px;background:${i.col}"></div>
+      <span class="lab">${i.lab}${i.sub?`<br><span class="sub" style="color:${i.subCol||'var(--dim)'}">${i.sub}</span>`:''}</span>
+    </div>`).join('')}</div>`;
+}
+function hbars(items){
+  const max = Math.max(1, ...items.map(i=>i.val));
+  return `<div>${items.map(i=>`
+    <div class="hrow">
+      <span class="name">${esc(i.name)}</span>
+      <span class="mv">${i.mv}</span>
+      <div class="track"><div class="fill" style="width:${Math.max(2,i.val/max*100)}%;background:${i.col||'var(--accent)'}"></div></div>
+    </div>`).join('')}</div>`;
+}
+const chip = (v,text) => `<span class="chip" style="background:${ncol(v)}">${text}</span>`;
+const decLab = d => `${String(d).slice(2)}er`;
+function section(title,num,note,body){
+  return `<section><div class="shead"><span class="num">${num}</span><h2>${title}</h2></div>
+    <p class="snote">${note}</p>${body}</section>`;
+}
+function mergeDecades(alb, songs){
+  const m = new Map();
+  alb.forEach(a=>m.set(a.decade,{decade:a.decade,albums:a.albums,avgWertung:a.avgWertung,avgNote:null}));
+  songs.forEach(s=>{ const o=m.get(s.decade)||{decade:s.decade,albums:0}; o.avgNote=s.avgNote; o.songs=s.songs; m.set(s.decade,o); });
+  return [...m.values()].sort((a,b)=>a.decade-b.decade);
+}
+
+// ── Inhalt rendern ───────────────────────────────────────────
+function renderContent(d){
+  const songsTotal = d.noteHist.reduce((s,x)=>s+x.count,0);
+  const albTotal   = d.perDecadeAlbums.reduce((s,x)=>s+x.albums,0);
+
+  const hero = `<div class="hero">
+      <h1>Wie diese Sammlung klingt&#8202;&#8212;&#8202;in Zahlen</h1>
+      <p class="lead">${fmt(albTotal)} Alben, ${fmt(songsTotal)} bewertete Songs in der aktuellen Auswahl.
+         Unten der Noten-Fingerabdruck: wie oft jede Note vergeben wurde &#8212; gr&uuml;n ist besser, 1 die Spitze.</p>
+      <div class="totals">
+        <div class="t"><b>${fmt(albTotal)}</b><span>Alben (mit Wertung)</span></div>
+        <div class="t"><b>${fmt(songsTotal)}</b><span>bewertete Songs</span></div>
+        <div class="t"><b>${fmt(d.totals.artists)}</b><span>Interpreten</span></div>
+        <div class="t"><b>${dec(d.quality.avgNote,2)}</b><span>&Oslash; Songnote</span></div>
+        <div class="t"><b>${dec(d.quality.wertung,2)}</b><span>&Oslash; Album-Wertung</span></div>
+      </div>
+      <div class="panel">
+        <p class="cap"><b>Noten-Fingerabdruck</b> &#183; Songs je Note (1&#8211;5)</p>
+        ${vbars(d.noteHist.map(x=>({val:x.count, col:NCOL[x.note], lab:'Note '+x.note})))}
+      </div></div>`;
+
+  const q = d.quality;
+  const qualitaet = section('Qualit&auml;t: Noten & Wertungen','2',
+    'Wie die Alben insgesamt bewertet sind und woraus sich die Album-Wertung speist (kleiner = besser).',
+    `<div class="grid2">
+       <div class="panel">
+         <p class="cap"><b>Album-Wertungen</b> &#183; Anzahl je gerundeter Wertung</p>
+         ${vbars(d.wertungHist.map(x=>({val:x.albums, col:ncol(x.wertung), lab:'Wertung '+x.wertung})))}
+       </div>
+       <div class="panel">
+         <p class="cap"><b>Woraus sich die Wertung speist</b> &#183; Durchschnitte</p>
+         ${hbars([
+            {name:'d1 (gewichtete Songnote)', val:6-q.d1,   mv:dec(q.d1), col:ncol(q.d1)},
+            {name:'CD-Note (Wert)',            val:6-q.wert, mv:dec(q.wert), col:ncol(q.wert)},
+            {name:'AMG',                       val:6-q.amg,  mv:dec(q.amg), col:ncol(q.amg)},
+            {name:'Cover',                     val:6-q.cover,mv:dec(q.cover), col:ncol(q.cover)},
+            {name:'&#8594; Wertung',           val:6-q.wertung,mv:dec(q.wertung), col:ncol(q.wertung)},
+         ])}
+       </div>
+     </div>`);
+
+  const decs = mergeDecades(d.perDecadeAlbums, d.perDecadeSongs);
+  const zeit = section('Jahrzehnte','3',
+    'Wie viele Alben aus jedem Jahrzehnt stammen und wie die Songs daraus im Schnitt benotet sind.',
+    `<div class="panel">
+       <p class="cap"><b>Alben je Jahrzehnt</b> (Balken) &#183; <b>&Oslash; Songnote</b> des Jahrzehnts (Zahl, eingef&auml;rbt)</p>
+       ${vbars(decs.map(x=>({val:x.albums, col:'#2f3a4d', lab:decLab(x.decade), sub:x.avgNote?dec(x.avgNote):'', subCol:ncol(x.avgNote||3)})))}
+     </div>`);
+
+  const interpreten = section('Interpreten','4',
+    'Links die produktivsten (Anzahl Alben in der Auswahl), rechts die bestbewerteten (ab 40 bewerteten Songs, kleinste &Oslash;-Note zuerst).',
+    `<div class="grid2">
+       <div class="panel">
+         <p class="cap"><b>Produktivste</b> &#183; Anzahl Alben</p>
+         ${d.topArtistsByAlbums.length? hbars(d.topArtistsByAlbums.map(a=>({name:a.artist, val:a.albums, mv:fmt(a.albums)}))) : '<p class="meta">Keine Alben in dieser Auswahl.</p>'}
+       </div>
+       <div class="panel">
+         <p class="cap"><b>Bestbewertete</b> &#183; &Oslash; Songnote (Songs)</p>
+         ${d.topArtistsByNote.length? `<div class="list">${d.topArtistsByNote.map((a,i)=>`
+           <div class="li"><div class="top-line">
+             <span><span class="rank">${i+1}</span>${esc(a.artist)}</span>
+             <span>${chip(a.avgNote, dec(a.avgNote))} <span class="meta">${fmt(a.songs)} Songs</span></span>
+           </div></div>`).join('')}</div>` : '<p class="meta">Zu wenige Songs in dieser Auswahl.</p>'}
+       </div>
+     </div>`);
+
+  const genre = section('Genre & Subgenre','5',
+    `${fmt(d.topGenres.length)} gezeigte Genres; dazu die groben „Styles“ mit ihrer &Oslash;-Note.`,
+    `<div class="grid2">
+       <div class="panel">
+         <p class="cap"><b>Top-Genres</b> &#183; Alben (Balken) &amp; &Oslash; Wertung (Zahl)</p>
+         ${hbars(d.topGenres.map(g=>({name:g.genre, val:g.albums, mv:fmt(g.albums)+'  ·  '+dec(g.avgWertung), col:'var(--accent)'})))}
+       </div>
+       <div class="panel">
+         <p class="cap"><b>Styles</b> &#183; Songs (Balken) &amp; &Oslash; Note (Farbe)</p>
+         ${hbars(d.styles.map(s=>({name:s.style, val:s.songs, mv:fmt(s.songs)+'  ·  '+dec(s.avgNote), col:ncol(s.avgNote)})))}
+       </div>
+     </div>`);
+
+  const L = d.listening;
+  const unheardPct = L.total? Math.round(L.unheard/L.total*100):0;
+  const hoeren = section('H&ouml;rverhalten','6',
+    'Spielz&auml;hler aus iTunes + Web-Player. Die zentrale Frage: werden besser benotete Songs wirklich &ouml;fter geh&ouml;rt?',
+    `<div class="totals" style="margin-bottom:18px">
+        <div class="t"><b>${fmt(L.plays)}</b><span>Abspielvorg&auml;nge gesamt</span></div>
+        <div class="t"><b>${fmt(L.unheard)}</b><span>nie geh&ouml;rt (${unheardPct}%)</span></div>
+        <div class="t"><b>${dec(L.total? L.plays/L.total:0,1)}</b><span>&Oslash; pro Song</span></div>
+     </div>
+     <div class="grid2">
+       <div class="panel">
+         <p class="cap"><b>&Oslash; Abspielungen je Note</b> &#183; h&ouml;rst du gr&uuml;n &ouml;fter?</p>
+         ${vbars(d.noteVsPlays.map(x=>({val:Math.round(x.avgPlays*10)/10, col:NCOL[x.note], lab:'Note '+x.note})))}
+       </div>
+       <div class="panel">
+         <p class="cap"><b>Meistgeh&ouml;rte Songs</b></p>
+         ${d.topPlayed.length? `<table>
+           <tr><th>#</th><th>Titel</th><th class="num">Mal</th><th class="num">Note</th></tr>
+           ${d.topPlayed.map((s,i)=>`<tr>
+             <td class="r">${i+1}</td>
+             <td>${esc(s.title)}<br><span class="meta">${esc(s.artist)}</span></td>
+             <td class="num">${fmt(s.plays)}</td>
+             <td class="num">${s.note?chip(s.note,s.note):'–'}</td>
+           </tr>`).join('')}
+         </table>` : '<p class="meta">Keine Abspielungen in dieser Auswahl.</p>'}
+       </div>
+     </div>`);
+
+  const dq = d.dataQuality;
+  const checks = [
+    ['Alben ohne Genre', dq.albumsNoGenre],
+    ['Alben ohne Jahr', dq.albumsNoYear],
+    ['Alben ohne Cover-Note', dq.albumsNoCover],
+    ['Alben ohne AMG', dq.albumsNoAmg],
+    ['Wertung-Ausrei&szlig;er (>5)', dq.wertungOutliers],
+    ['Songs ohne Note (Org=T)', dq.songsUnrated],
+    ['Songs mit NULL-Spielz&auml;hler', dq.songsNullCount],
+  ];
+  const datenqualitaet = section('Datenqualit&auml;t','8',
+    'Auff&auml;lligkeiten f&uuml;rs Aufr&auml;umen (in der aktuellen Auswahl). 0 ist gut; alles dar&uuml;ber sind Kandidaten zum Nachpflegen.',
+    `<div class="panel">${checks.map(([lbl,n])=>`
+       <div class="dq">
+         <span class="dot" style="background:${n?'var(--warn)':'var(--n1)'}"></span>
+         <span class="lbl">${lbl}</span>
+         <span class="n ${n?'warn':'ok'}">${fmt(n)}</span>
+       </div>`).join('')}</div>`);
+
+  $('#content').innerHTML = hero + qualitaet + zeit + interpreten + genre + hoeren + datenqualitaet;
+}
+
+bootstrap();
+</script>
+</body>
+</html>

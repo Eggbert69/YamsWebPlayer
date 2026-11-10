@@ -695,6 +695,7 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
 #ss-albumline{display:flex;align-items:center;gap:.7em;margin-top:.5em;
   font-size:clamp(1rem,2vw,2rem);color:rgba(255,255,255,.65)}
 #ss-note{font-weight:700;letter-spacing:.06em}
+#ss-bgpl{display:none;font-size:.55em;font-weight:800;letter-spacing:.1em;color:#a7e03a;background:#16321c;border:1px solid #2f6b35;border-radius:999px;padding:.12em .6em;vertical-align:middle}
 #ss-foot{flex-shrink:0}
 #ss-bar{height:6px;border-radius:999px;background:rgba(255,255,255,.18);overflow:hidden}
 #ss-bar-fill{height:100%;width:0;background:var(--play);border-radius:999px}
@@ -752,8 +753,10 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
   <h1>&#9835; YAMS <span class="web">Web</span>Player</h1>
   <div id="stats-bar"></div>
   <div class="spacer"></div>
+  <a href="/generator.html" class="btn secondary" style="text-decoration:none">&#127928; Generator</a>
   <button class="btn secondary" id="toggle-search-btn">&#128269; Suche</button>
   <button class="btn secondary" id="ps-legend-btn" title="Farb-Legende Spielstatus">&#9432; Spielstatus-Legende</button>
+  <button class="btn secondary" onclick="location.href='/stats'" title="Statistische Auswertung">&#128202; Statistik</button>
 </header>
 
 <datalist id="artist-list"></datalist>
@@ -991,6 +994,7 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
         <div id="ss-albumline">
           <span id="ss-note"></span>
           <span id="ss-album"></span>
+          <span id="ss-bgpl">BGPL</span>
         </div>
       </div>
     </div>
@@ -3047,6 +3051,7 @@ function ssSync() {
     $('ss-artist').textContent = '';
     $('ss-note').innerHTML     = '';
     $('ss-album').textContent  = '';
+    if ($('ss-bgpl')) $('ss-bgpl').style.display = 'none';
     $('ss-next').innerHTML     = '';
     $('ss-cover-img').removeAttribute('src');
     $('ss-bg').style.backgroundImage = 'none';
@@ -3056,6 +3061,7 @@ function ssSync() {
   $('ss-artist').textContent = s.artist || '';
   $('ss-note').innerHTML     = ssNoteMarkup(s.note || 0, RC.songId === s.songId ? RC.proposal : null);
   $('ss-album').textContent  = [s.albumTitle, s.year > 0 ? s.year : ''].filter(Boolean).join('   ');
+  ssRenderBgpl();
   const cover = s.albumId ? `/api/cover/${s.albumId}` : '';
   if (cover) { $('ss-cover-img').src = cover; $('ss-bg').style.backgroundImage = `url('${cover}')`; }
   else       { $('ss-cover-img').removeAttribute('src'); $('ss-bg').style.backgroundImage = 'none'; }
@@ -3088,7 +3094,7 @@ function ssClockTick() {
 // Der Player meldet seinen Zustand und holt ~alle 0,9 s Transport-Kommandos ab.
 // Note-Vorschläge (Handy/Gamepad) schreibt der Server; der aktuelle Vorschlag
 // kommt im Poll zurück und wird im Screensaver angezeigt.
-const RC = { proposal: null, songId: null, timer: null };
+const RC = { proposal: null, songId: null, bgpl: null, bgplSongId: null, timer: null };
 
 function playerNext()      { if (Q.pos + 1 < Q.songs.length) { Q.pos++; playCurrent(); } }
 function playerPrev()      { if (Q.pos > 0) { Q.pos--; playCurrent(); } }
@@ -3135,6 +3141,17 @@ async function rcTick() {
       RC.proposal = prop; RC.songId = curId;
       if (SS.open) ssRenderNote();
     }
+    // BGPL-Mitgliedschaft des laufenden Songs: bei Songwechsel nur merken,
+    // bei echter Änderung (Fernbedienung/Gamepad) Toast + Abzeichen aktualisieren.
+    const bg = !!d.bgpl;
+    if (curId !== RC.bgplSongId) {
+      RC.bgplSongId = curId; RC.bgpl = bg;
+      if (SS.open) ssRenderBgpl();
+    } else if (bg !== RC.bgpl) {
+      RC.bgpl = bg;
+      showToast(bg ? '+ Background PL' : '− Background PL', 1800);
+      if (SS.open) ssRenderBgpl();
+    }
   } catch {}
 }
 
@@ -3144,7 +3161,8 @@ function rcStart() {
 }
 
 // Optionaler Bluetooth-Gamecontroller über die Gamepad-API. D-Pad hoch = besser
-// (Note −1), runter = schlechter; links/rechts = zurück/vor; A = Play/Pause, B = Stop.
+// (Note −1), runter = schlechter; links/rechts = zurück/vor; A = Play/Pause, B = Stop;
+// X = zur Background-Playlist (+), Y = aus Background-Playlist (−).
 // Läuft über denselben Server-Pfad wie die Handy-Fernbedienung.
 const GP = { active: false, prev: {} };
 function gamepadStart() {
@@ -3163,6 +3181,8 @@ function gamepadPoll() {
     if (gpEdge('right', b[15] || ax[0] >  0.6)) rcSend('next');
     if (gpEdge('a', b[0])) rcSend('playpause');
     if (gpEdge('b', b[1])) rcSend('stop');
+    if (gpEdge('x', b[2])) rcSend('bgpl:add');
+    if (gpEdge('y', b[3])) rcSend('bgpl:remove');
   }
   requestAnimationFrame(gamepadPoll);
 }
@@ -3177,6 +3197,14 @@ function ssNoteMarkup(stored, proposal) {
 function ssRenderNote() {
   const s = Q.songs[Q.pos];
   $('ss-note').innerHTML = s ? ssNoteMarkup(s.note || 0, RC.songId === s.songId ? RC.proposal : null) : '';
+}
+// BGPL-Abzeichen im Screensaver: sichtbar, wenn der laufende Song in der Background-Playlist ist.
+function ssRenderBgpl() {
+  const el = $('ss-bgpl');
+  if (!el) return;
+  const s = Q.songs[Q.pos];
+  const member = !!(s && RC.bgplSongId === s.songId && RC.bgpl);
+  el.style.display = member ? 'inline-block' : 'none';
 }
 </script>
 </body>

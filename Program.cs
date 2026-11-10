@@ -1164,6 +1164,75 @@ app.MapGet("/api/playlists/{id:int}/tracks", async (int id) =>
     return Results.Json(tracks);
 });
 
+// ── GET /api/generator/songs ──────────────────────────────────────────────────
+// Mini-Playlist-Generator: alle Songs eines Künstlers nach Typ/Modus.
+// Parameter:
+//   artist              – exakter Künstlername (CDArtistName oder CDArtistSort)
+//   headTyp             – 'S'=Studio (Standard), 'L'=Live
+//   includeCompilations – auch CDHeadCat='C' (Sampler/Best Of) einschließen
+//   maxNote             – 0=alle, 1=nur Note 1, 2=≤Note 2, 3=≤Note 3
+// Rückgabeformat identisch mit /api/playlists/{id}/tracks.
+app.MapGet("/api/generator/songs", async (string? artist, string? headTyp, bool? includeCompilations, int? maxNote) =>
+{
+    if (string.IsNullOrWhiteSpace(artist))
+        return Results.BadRequest(new { error = "artist required" });
+
+    bool   inclComp = includeCompilations ?? false;
+    int    maxN     = maxNote ?? 0;
+    string typ      = (headTyp ?? "S").Trim().ToUpper() == "L" ? "L" : "S";
+
+    string catFilter  = inclComp
+        ? "LTRIM(RTRIM(ISNULL(h.CDHeadCat,''))) IN ('O','C')"
+        : "LTRIM(RTRIM(ISNULL(h.CDHeadCat,''))) = 'O'";
+    string noteFilter = maxN > 0 ? "AND ISNULL(s.CDSongNote,0) <= @MaxNote" : "";
+
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = $@"
+        SELECT s.CDSongId,
+               RTRIM(ISNULL(s.CDSongTitel,''))  AS Title,
+               RTRIM(ISNULL(a.CDArtistName,'')) AS Artist,
+               RTRIM(ISNULL(h.CDHeadTitel,''))  AS Album,
+               ISNULL(s.CDSongSecs, 0)          AS Secs,
+               ISNULL(CONVERT(INT, s.CDSongNote), 0) AS Note,
+               ISNULL(h.CDHeadJahr, 0)          AS Year,
+               h.CDHeadId,
+               ISNULL(CONVERT(INT, s.CDSongTrackNum), 0) AS TrackNum
+        FROM   CDSong   s
+        JOIN   CDHead   h  ON s.CDHeadId   = h.CDHeadId
+        JOIN   CDArtist a  ON h.CDArtistId = a.CDArtistId
+        WHERE  (RTRIM(a.CDArtistName) = @Artist OR RTRIM(a.CDArtistSort) = @Artist)
+        AND    LTRIM(RTRIM(ISNULL(h.CDHeadTyp,''))) = @HeadTyp
+        AND    {catFilter}
+        {noteFilter}
+        ORDER BY h.CDHeadJahr, h.CDHeadTitel, s.CDSongTrackNum";
+
+    cmd.Parameters.AddWithValue("@Artist",  artist.Trim());
+    cmd.Parameters.AddWithValue("@HeadTyp", typ);
+    if (maxN > 0) cmd.Parameters.AddWithValue("@MaxNote", maxN);
+
+    var tracks = new List<object>();
+    int nr = 1;
+    await using var r = await cmd.ExecuteReaderAsync();
+    while (await r.ReadAsync())
+        tracks.Add(new
+        {
+            songId   = Convert.ToInt32(r[0]),
+            songNr   = nr++,
+            title    = r.GetString(1).Trim(),
+            artist   = r.GetString(2).Trim(),
+            album    = r.GetString(3).Trim(),
+            secs     = Convert.ToInt32(r[4]),
+            note     = Convert.ToInt32(r[5]),
+            year     = Convert.ToInt32(r[6]),
+            albumId  = r.IsDBNull(7) ? 0 : Convert.ToInt32(r[7]),
+            trackNum = Convert.ToInt32(r[8]),
+        });
+
+    return Results.Json(tracks);
+});
+
 // ════════════════════════════════════════════════════════════════════════════════
 // NEUBEWERTUNG (Vorschläge) + FERNSTEUERUNG (iPhone / Gamepad via Relay)
 // ════════════════════════════════════════════════════════════════════════════════
@@ -1174,6 +1243,13 @@ app.MapGet("/api/playlists/{id:int}/tracks", async (int id) =>
 var remote = new RemoteHub();
 // Serialisiert Note-Schritte, damit schnelle Doppeldrücke (3→2→1) sich nicht überholen.
 var reRateGate = new SemaphoreSlim(1, 1);
+
+// Hintergrund-Playlist "Background PL": Smart-Playlist mit PlaylistTag="$BGPL$".
+// Mitgliedschaft wird über das Song-Flag $BGPL$ in CDSong.CDSongFlags bestimmt
+// (Regel SongFlag="$BGPL$"). BGPL +/- setzt/entfernt dieses Flag UND hält die
+// materialisierte PlaylistDetailClaude-Tabelle synchron, damit es sofort wirkt.
+const string BgplTag = "$BGPL$";
+int? bgplPlaylistId = null;
 
 // Schreibt einen ABSOLUTEN Notenvorschlag (1..5) für einen Song und merkt dessen Album
 // vor. Upsert: max. ein offener Vorschlag je Song. Liefert den gespeicherten Wert, oder
@@ -1237,6 +1313,112 @@ async Task<int?> OpenProposalAsync(int songId)
     return v is null || v is DBNull ? (int?)null : Convert.ToInt32(v);
 }
 
+// Löst die BGPL-Playlist (PlaylistTag="$BGPL$") einmalig auf und cacht ihre Id.
+async Task<int?> ResolveBgplPlaylistIdAsync()
+{
+    if (bgplPlaylistId is { } cached) return cached;
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText =
+        "SELECT TOP 1 PlaylistId FROM PlaylistClaude " +
+        "WHERE CAST(PlaylistSelect AS NVARCHAR(MAX)) LIKE '%PlaylistTag=\"' + @tag + '\"%'";
+    cmd.Parameters.AddWithValue("@tag", BgplTag);
+    var v = await cmd.ExecuteScalarAsync();
+    if (v is null || v is DBNull) return null;
+    bgplPlaylistId = Convert.ToInt32(v);
+    return bgplPlaylistId;
+}
+
+// Ist der Song aktuell in der BGPL (Flag $BGPL$ in CDSongFlags)?
+async Task<bool> IsInBgplAsync(int songId)
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText =
+        "SELECT CASE WHEN EXISTS (SELECT 1 FROM CDSong " +
+        "WHERE CDSongId = @s AND CDSongFlags LIKE '%' + @tag + '%') THEN 1 ELSE 0 END";
+    cmd.Parameters.AddWithValue("@s", songId);
+    cmd.Parameters.AddWithValue("@tag", BgplTag);
+    return Convert.ToInt32(await cmd.ExecuteScalarAsync()) == 1;
+}
+
+// Fügt den Song zur BGPL hinzu: Flag setzen + Detail-Zeile anlegen (atomar). Liefert
+// true (jetzt Mitglied), oder null wenn Song oder Playlist nicht existieren.
+async Task<bool?> BgplAddAsync(int songId)
+{
+    var plId = await ResolveBgplPlaylistIdAsync();
+    if (plId is null) return null;
+
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+
+    await using var look = conn.CreateCommand();
+    look.CommandText = "SELECT 1 FROM CDSong WHERE CDSongId = @s";
+    look.Parameters.AddWithValue("@s", songId);
+    if (await look.ExecuteScalarAsync() is null) return null;
+
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SET XACT_ABORT ON;
+        BEGIN TRAN;
+          UPDATE CDSong
+             SET CDSongFlags = RTRIM(ISNULL(CDSongFlags, '')) + @tag
+           WHERE CDSongId = @s
+             AND (CDSongFlags IS NULL OR CDSongFlags NOT LIKE '%' + @tag + '%');
+
+          IF NOT EXISTS (SELECT 1 FROM PlaylistDetailClaude WHERE PlaylistId = @pl AND CDSongId = @s)
+            INSERT INTO PlaylistDetailClaude
+                (PlaylistId, CDSongId, SongNr, SelectedSong, CDArtistSort, CDSongTitel, CDSongNote,
+                 CDSongDauer, CDSongJahr, CDHeadTitel, CDHeadJahr, CDHeadWertung, CDSongAppleHigh,
+                 CDSongAppleLow, CDSongSecs, RuleName, CDHeadId, CDHeadAMG)
+            SELECT @pl, s.CDSongId,
+                   (SELECT ISNULL(MAX(SongNr), 0) + 1 FROM PlaylistDetailClaude WHERE PlaylistId = @pl),
+                   1, RTRIM(ISNULL(a.CDArtistSort, '')), s.CDSongTitel, s.CDSongNote, s.CDSongDauer,
+                   s.CDSongJahr, h.CDHeadTitel, h.CDHeadJahr, h.CDHeadWertung, s.CDSongAppleHigh,
+                   s.CDSongAppleLow, s.CDSongSecs, NULL, s.CDHeadId, h.CDHeadAMG
+            FROM CDSong s
+            JOIN CDHead h ON h.CDHeadId = s.CDHeadId
+            LEFT JOIN CDArtist a ON a.CDArtistId = s.SongArtistId
+            WHERE s.CDSongId = @s;
+        COMMIT;";
+    cmd.Parameters.AddWithValue("@s", songId);
+    cmd.Parameters.AddWithValue("@pl", plId.Value);
+    cmd.Parameters.AddWithValue("@tag", BgplTag);
+    await cmd.ExecuteNonQueryAsync();
+    return true;
+}
+
+// Entfernt den Song aus der BGPL: Flag entfernen + Detail-Zeile löschen (atomar).
+// Liefert false (nicht mehr Mitglied), oder null wenn Song/Playlist nicht existieren.
+async Task<bool?> BgplRemoveAsync(int songId)
+{
+    var plId = await ResolveBgplPlaylistIdAsync();
+    if (plId is null) return null;
+
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+
+    await using var look = conn.CreateCommand();
+    look.CommandText = "SELECT 1 FROM CDSong WHERE CDSongId = @s";
+    look.Parameters.AddWithValue("@s", songId);
+    if (await look.ExecuteScalarAsync() is null) return null;
+
+    await using var cmd = conn.CreateCommand();
+    cmd.CommandText = @"
+        SET XACT_ABORT ON;
+        BEGIN TRAN;
+          UPDATE CDSong SET CDSongFlags = RTRIM(REPLACE(ISNULL(CDSongFlags, ''), @tag, '')) WHERE CDSongId = @s;
+          DELETE FROM PlaylistDetailClaude WHERE PlaylistId = @pl AND CDSongId = @s;
+        COMMIT;";
+    cmd.Parameters.AddWithValue("@s", songId);
+    cmd.Parameters.AddWithValue("@pl", plId.Value);
+    cmd.Parameters.AddWithValue("@tag", BgplTag);
+    await cmd.ExecuteNonQueryAsync();
+    return false;
+}
+
 // ── POST /api/songs/{id}/rerate  { note: 1..5 } ─────────────────────────────────
 // Absoluter Notenvorschlag (z. B. 1–5-Taste direkt am Player).
 app.MapPost("/api/songs/{songId:int}/rerate", async (int songId, ReRateDto body) =>
@@ -1291,6 +1473,20 @@ app.MapGet("/api/rerate", async () =>
     return Results.Json(items);
 });
 
+// ── POST /api/songs/{id}/bgpl  /  DELETE /api/songs/{id}/bgpl ────────────────────
+// Fügt den Song zur Hintergrund-Playlist $BGPL$ hinzu bzw. entfernt ihn
+// (Flag in CDSongFlags + Zeile in PlaylistDetailClaude, synchron).
+app.MapPost("/api/songs/{songId:int}/bgpl", async (int songId) =>
+{
+    var r = await BgplAddAsync(songId);
+    return r is null ? Results.NotFound() : Results.Json(new { songId, bgpl = r.Value });
+});
+app.MapDelete("/api/songs/{songId:int}/bgpl", async (int songId) =>
+{
+    var r = await BgplRemoveAsync(songId);
+    return r is null ? Results.NotFound() : Results.Json(new { songId, bgpl = r.Value });
+});
+
 // ── Relay: Player ⇄ Fernbedienung (Short-Poll) ───────────────────────────────────
 // Player meldet "läuft gerade".
 app.MapPost("/api/remote/nowplaying", (NowPlayingDto np) =>
@@ -1305,8 +1501,10 @@ app.MapGet("/api/remote/poll", async () =>
 {
     var cmds = new List<string>();
     while (remote.Commands.TryDequeue(out var c)) cmds.Add(c);
-    int? proposal = (remote.NowPlaying is { } np && np.SongId > 0) ? await OpenProposalAsync(np.SongId) : null;
-    return Results.Json(new { commands = cmds, proposal });
+    var np = remote.NowPlaying;
+    int? proposal = (np is not null && np.SongId > 0) ? await OpenProposalAsync(np.SongId) : null;
+    bool bgpl     = (np is not null && np.SongId > 0) && await IsInBgplAsync(np.SongId);
+    return Results.Json(new { commands = cmds, proposal, bgpl });
 });
 
 // Fernbedienung liest aktuellen Zustand + offenen Vorschlag.
@@ -1314,8 +1512,9 @@ app.MapGet("/api/remote/state", async () =>
 {
     var np = remote.NowPlaying;
     int? proposal = (np is not null && np.SongId > 0) ? await OpenProposalAsync(np.SongId) : null;
+    bool bgpl     = (np is not null && np.SongId > 0) && await IsInBgplAsync(np.SongId);
     var online = (DateTime.UtcNow - remote.NowPlayingAt).TotalSeconds < 10;
-    return Results.Json(new { online, nowPlaying = np, proposal });
+    return Results.Json(new { online, nowPlaying = np, proposal, bgpl });
 });
 
 // Fernbedienung sendet ein Kommando. Transport → Queue für den Player.
@@ -1336,6 +1535,9 @@ app.MapPost("/api/remote/command", async (CommandDto body) =>
     await reRateGate.WaitAsync();
     try
     {
+        if (cmd == "bgpl:add")    { var b = await BgplAddAsync(np.SongId);    return Results.Json(new { songId = np.SongId, bgpl = b }); }
+        if (cmd == "bgpl:remove") { var b = await BgplRemoveAsync(np.SongId); return Results.Json(new { songId = np.SongId, bgpl = b }); }
+
         int target;
         if (cmd == "note:up")        target = await EffectiveNoteAsync(np.SongId) - 1; // besser
         else if (cmd == "note:down") target = await EffectiveNoteAsync(np.SongId) + 1; // schlechter
@@ -1347,6 +1549,141 @@ app.MapPost("/api/remote/command", async (CommandDto body) =>
     }
     finally { reRateGate.Release(); }
 });
+
+// ── GET /api/statistics ──────────────────────────────────────────────────────────
+// Aggregierte Kennzahlen für die Statistik-Seite (/stats): Qualität (Noten/Wertung),
+// Zeit (Jahrzehnte), Interpreten, Genre/Subgenre, Hörverhalten, Datenqualität.
+app.MapGet("/api/statistics", async (string? cat, string? typ) =>
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+
+    double Dbl(object v) => v is null || v is DBNull ? 0 : Convert.ToDouble(v);
+    int    Int(object v) => v is null || v is DBNull ? 0 : Convert.ToInt32(v);
+    string Str(object v) => v is null || v is DBNull ? "" : v.ToString().Trim();
+
+    // Filter: erlaubte Album-Kategorien (CDHeadCat) und -Typen (CDHeadTyp). Leer oder
+    // alle = kein Filter. Werte werden gegen Whitelists geprüft (keine SQL-Injection).
+    var validCat = new HashSet<string> { "O", "C", "M", "S", "B" };
+    var validTyp = new HashSet<string> { "S", "L", "M" };
+    string? In(string? csv, HashSet<string> valid)
+    {
+        if (string.IsNullOrWhiteSpace(csv)) return null;
+        var p = csv.Split(',').Select(x => x.Trim().ToUpperInvariant()).Where(valid.Contains).Distinct().ToList();
+        if (p.Count == 0 || p.Count == valid.Count) return null;
+        return string.Join(",", p.Select(x => "'" + x + "'"));
+    }
+    var catIn = In(cat, validCat);
+    var typIn = In(typ, validTyp);
+    string F(string a)
+    {
+        var p = new List<string>();
+        if (catIn != null) p.Add($"RTRIM({a}.CDHeadCat) IN ({catIn})");
+        if (typIn != null) p.Add($"RTRIM({a}.CDHeadTyp) IN ({typIn})");
+        return p.Count == 0 ? "" : " AND " + string.Join(" AND ", p);
+    }
+
+    async Task<List<object>> Q(string sql, Func<Microsoft.Data.SqlClient.SqlDataReader, object> map)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        var list = new List<object>();
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync()) list.Add(map(r));
+        return list;
+    }
+    async Task<object> Row(string sql, Func<Microsoft.Data.SqlClient.SqlDataReader, object> map)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = sql;
+        await using var r = await cmd.ExecuteReaderAsync();
+        return await r.ReadAsync() ? map(r) : null;
+    }
+
+    // Filter-Optionen (ungefiltert, damit die Auswahl stabil bleibt)
+    var facetsCat = await Q("SELECT RTRIM(CDHeadCat), COUNT(*) FROM CDHead WHERE RTRIM(ISNULL(CDHeadCat,''))<>'' GROUP BY RTRIM(CDHeadCat) ORDER BY 2 DESC",
+        r => new { code = Str(r[0]), albums = Int(r[1]) });
+    var facetsTyp = await Q("SELECT RTRIM(CDHeadTyp), COUNT(*) FROM CDHead WHERE RTRIM(ISNULL(CDHeadTyp,''))<>'' GROUP BY RTRIM(CDHeadTyp) ORDER BY 2 DESC",
+        r => new { code = Str(r[0]), albums = Int(r[1]) });
+
+    // 2 — Qualität
+    var noteHist = await Q(
+        $"SELECT s.CDSongNote, COUNT(*) FROM CDSong s JOIN CDHead h ON h.CDHeadId=s.CDHeadId WHERE s.CDSongOrg='T' AND s.CDSongNote BETWEEN 1 AND 5{F("h")} GROUP BY s.CDSongNote ORDER BY s.CDSongNote",
+        r => new { note = Int(r[0]), count = Int(r[1]) });
+    var wertungHist = await Q(
+        $"SELECT CAST(ROUND(h.CDHeadWertung,0) AS INT), COUNT(*) FROM CDHead h WHERE h.CDHeadWertung>0 AND h.CDHeadWertung<=5{F("h")} GROUP BY CAST(ROUND(h.CDHeadWertung,0) AS INT) ORDER BY 1",
+        r => new { wertung = Int(r[0]), albums = Int(r[1]) });
+    var quality = await Row(
+        $"SELECT AVG(CAST(h.CDHeadSongs AS float)), AVG(CAST(h.CDHeadWert AS float)), AVG(h.CDHeadAMG), AVG(CAST(h.CDHeadCover AS float)), AVG(h.CDHeadWertung), (SELECT AVG(CAST(s.CDSongNote AS float)) FROM CDSong s JOIN CDHead h2 ON h2.CDHeadId=s.CDHeadId WHERE s.CDSongOrg='T' AND s.CDSongNote BETWEEN 1 AND 5{F("h2")}) FROM CDHead h WHERE h.CDHeadWertung>0{F("h")}",
+        r => new { d1 = Math.Round(Dbl(r[0]),2), wert = Math.Round(Dbl(r[1]),2), amg = Math.Round(Dbl(r[2]),2), cover = Math.Round(Dbl(r[3]),2), wertung = Math.Round(Dbl(r[4]),2), avgNote = Math.Round(Dbl(r[5]),2) });
+
+    // 3 — Zeit
+    var perDecadeAlbums = await Q(
+        $"SELECT (h.CDHeadJahr/10)*10, COUNT(*), AVG(h.CDHeadWertung) FROM CDHead h WHERE h.CDHeadJahr>=1940 AND h.CDHeadWertung>0{F("h")} GROUP BY (h.CDHeadJahr/10)*10 ORDER BY 1",
+        r => new { decade = Int(r[0]), albums = Int(r[1]), avgWertung = Math.Round(Dbl(r[2]),2) });
+    var perDecadeSongs = await Q(
+        $"SELECT (s.CDSongJahr/10)*10, COUNT(*), AVG(CAST(s.CDSongNote AS float)) FROM CDSong s JOIN CDHead h ON h.CDHeadId=s.CDHeadId WHERE s.CDSongOrg='T' AND s.CDSongJahr>=1940 AND s.CDSongNote BETWEEN 1 AND 5{F("h")} GROUP BY (s.CDSongJahr/10)*10 ORDER BY 1",
+        r => new { decade = Int(r[0]), songs = Int(r[1]), avgNote = Math.Round(Dbl(r[2]),2) });
+
+    // 4 — Interpreten
+    var topArtistsByAlbums = await Q(
+        $"SELECT TOP 15 RTRIM(a.CDArtistSort), COUNT(*) FROM CDHead h JOIN CDArtist a ON a.CDArtistId=h.CDArtistId WHERE 1=1{F("h")} GROUP BY RTRIM(a.CDArtistSort) ORDER BY 2 DESC",
+        r => new { artist = Str(r[0]), albums = Int(r[1]) });
+    var topArtistsByNote = await Q(
+        $"SELECT TOP 15 RTRIM(a.CDArtistSort), AVG(CAST(s.CDSongNote AS float)), COUNT(*) FROM CDSong s JOIN CDArtist a ON a.CDArtistId=s.CDArtistId JOIN CDHead h ON h.CDHeadId=s.CDHeadId WHERE s.CDSongOrg='T' AND s.CDSongNote BETWEEN 1 AND 5{F("h")} GROUP BY RTRIM(a.CDArtistSort) HAVING COUNT(*)>=40 ORDER BY 2 ASC",
+        r => new { artist = Str(r[0]), avgNote = Math.Round(Dbl(r[1]),2), songs = Int(r[2]) });
+
+    // 5 — Genre / Subgenre (Style)
+    var topGenres = await Q(
+        $"SELECT TOP 15 RTRIM(h.CDHeadGenre), COUNT(*), AVG(h.CDHeadWertung) FROM CDHead h WHERE RTRIM(ISNULL(h.CDHeadGenre,''))<>'' AND h.CDHeadWertung>0{F("h")} GROUP BY RTRIM(h.CDHeadGenre) ORDER BY 2 DESC",
+        r => new { genre = Str(r[0]), albums = Int(r[1]), avgWertung = Math.Round(Dbl(r[2]),2) });
+    var styles = await Q(
+        $"SELECT RTRIM(s.CDSongStyle), COUNT(*), AVG(CAST(s.CDSongNote AS float)) FROM CDSong s JOIN CDHead h ON h.CDHeadId=s.CDHeadId WHERE s.CDSongOrg='T' AND RTRIM(ISNULL(s.CDSongStyle,''))<>'' AND s.CDSongNote BETWEEN 1 AND 5{F("h")} GROUP BY RTRIM(s.CDSongStyle) ORDER BY 2 DESC",
+        r => new { style = Str(r[0]), songs = Int(r[1]), avgNote = Math.Round(Dbl(r[2]),2) });
+
+    // 6 — Hörverhalten
+    var listening = await Row(
+        $"SELECT COUNT(*), SUM(CASE WHEN ISNULL(s.CDSongCount,0)=0 THEN 1 ELSE 0 END), SUM(CAST(ISNULL(s.CDSongCount,0) AS bigint)) FROM CDSong s JOIN CDHead h ON h.CDHeadId=s.CDHeadId WHERE s.CDSongOrg='T'{F("h")}",
+        r => new { total = Int(r[0]), unheard = Int(r[1]), plays = r[2] is DBNull ? 0L : Convert.ToInt64(r[2]) });
+    var noteVsPlays = await Q(
+        $"SELECT s.CDSongNote, AVG(CAST(ISNULL(s.CDSongCount,0) AS float)), COUNT(*) FROM CDSong s JOIN CDHead h ON h.CDHeadId=s.CDHeadId WHERE s.CDSongOrg='T' AND s.CDSongNote BETWEEN 1 AND 5{F("h")} GROUP BY s.CDSongNote ORDER BY s.CDSongNote",
+        r => new { note = Int(r[0]), avgPlays = Math.Round(Dbl(r[1]),2), songs = Int(r[2]) });
+    var topPlayed = await Q(
+        $"SELECT TOP 10 RTRIM(s.CDSongTitel), RTRIM(a.CDArtistSort), s.CDSongCount, s.CDSongNote FROM CDSong s JOIN CDArtist a ON a.CDArtistId=s.CDArtistId JOIN CDHead h ON h.CDHeadId=s.CDHeadId WHERE ISNULL(s.CDSongCount,0)>0{F("h")} ORDER BY s.CDSongCount DESC",
+        r => new { title = Str(r[0]), artist = Str(r[1]), plays = Int(r[2]), note = Int(r[3]) });
+
+    // 8 — Datenqualität
+    var dataQuality = await Row(
+        $@"SELECT
+            (SELECT COUNT(*) FROM CDHead h WHERE RTRIM(ISNULL(h.CDHeadGenre,''))=''{F("h")}),
+            (SELECT COUNT(*) FROM CDHead h WHERE ISNULL(h.CDHeadJahr,0)=0{F("h")}),
+            (SELECT COUNT(*) FROM CDHead h WHERE ISNULL(h.CDHeadCover,0)=0{F("h")}),
+            (SELECT COUNT(*) FROM CDHead h WHERE ISNULL(h.CDHeadAMG,0)=0{F("h")}),
+            (SELECT COUNT(*) FROM CDHead h WHERE h.CDHeadWertung>5{F("h")}),
+            (SELECT COUNT(*) FROM CDSong s JOIN CDHead h ON h.CDHeadId=s.CDHeadId WHERE s.CDSongOrg='T' AND ISNULL(s.CDSongNote,0)=0{F("h")}),
+            (SELECT COUNT(*) FROM CDSong s JOIN CDHead h ON h.CDHeadId=s.CDHeadId WHERE s.CDSongCount IS NULL{F("h")})",
+        r => new { albumsNoGenre = Int(r[0]), albumsNoYear = Int(r[1]), albumsNoCover = Int(r[2]), albumsNoAmg = Int(r[3]), wertungOutliers = Int(r[4]), songsUnrated = Int(r[5]), songsNullCount = Int(r[6]) });
+
+    var totals = await Row(
+        $"SELECT (SELECT COUNT(DISTINCT h.CDArtistId) FROM CDHead h WHERE 1=1{F("h")}), (SELECT MIN(NULLIF(h.CDHeadJahr,0)) FROM CDHead h WHERE h.CDHeadJahr>=1900{F("h")}), (SELECT MAX(h.CDHeadJahr) FROM CDHead h WHERE 1=1{F("h")})",
+        r => new { artists = Int(r[0]), yearFrom = Int(r[1]), yearTo = Int(r[2]) });
+
+    return Results.Json(new
+    {
+        totals,
+        facets = new { cats = facetsCat, typs = facetsTyp },
+        noteHist, wertungHist, quality,
+        perDecadeAlbums, perDecadeSongs,
+        topArtistsByAlbums, topArtistsByNote,
+        topGenres, styles,
+        listening, noteVsPlays, topPlayed,
+        dataQuality
+    });
+});
+
+// ── GET /stats ────────────────────────────────────────────────────────────────
+app.MapGet("/stats", (IWebHostEnvironment env) =>
+    Results.File(Path.Combine(env.WebRootPath ?? "wwwroot", "stats.html"), "text/html"));
 
 // ── GET /remote ──────────────────────────────────────────────────────────────
 // Bequemer Pfad für die iPhone-Fernbedienung (sonst auch unter /remote.html).

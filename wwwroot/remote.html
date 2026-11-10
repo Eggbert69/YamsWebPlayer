@@ -78,6 +78,12 @@
     <button onpointerdown="send('note:set:5')">5</button>
   </div>
 
+  <div class="label">Background-Playlist <span class="pill" id="bgpl-pill" style="display:none">&#10003; enthalten</span></div>
+  <div class="rate">
+    <button class="up"   onpointerdown="send('bgpl:add')">BGPL &#10133;</button>
+    <button class="down" onpointerdown="send('bgpl:remove')">BGPL &#10134;</button>
+  </div>
+
   <div class="label">Wiedergabe</div>
   <div class="transport">
     <button onpointerdown="send('prev')">&#9198;</button>
@@ -122,6 +128,8 @@ function render(st) {
   } else {
     $('noteline').innerHTML = noteSpan(stored);
   }
+  // Background-Playlist: Pille zeigen, wenn der laufende Song enthalten ist.
+  $('bgpl-pill').style.display = (st && st.bgpl) ? '' : 'none';
 }
 
 async function poll() {
