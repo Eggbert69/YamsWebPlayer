@@ -1706,6 +1706,10 @@ app.MapGet("/api/statistics", async (string? cat, string? typ, string[]? ig, str
 app.MapGet("/stats", (IWebHostEnvironment env) =>
     Results.File(Path.Combine(env.WebRootPath ?? "wwwroot", "stats.html"), "text/html"));
 
+// ── GET /generator ────────────────────────────────────────────────────────────
+app.MapGet("/generator", (IWebHostEnvironment env) =>
+    Results.File(Path.Combine(env.WebRootPath ?? "wwwroot", "generator.html"), "text/html"));
+
 // ── GET /remote ──────────────────────────────────────────────────────────────
 // Bequemer Pfad für die iPhone-Fernbedienung (sonst auch unter /remote.html).
 app.MapGet("/remote", (IWebHostEnvironment env) =>
