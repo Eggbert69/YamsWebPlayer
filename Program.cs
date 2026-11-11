@@ -1666,7 +1666,8 @@ app.MapPost("/api/remote/command", async (CommandDto body) =>
     var cmd = (body.Cmd ?? "").Trim().ToLowerInvariant();
 
     if (cmd is "next" or "prev" or "playpause" or "pause" or "stop"
-        || (cmd.StartsWith("seek:") && double.TryParse(cmd.AsSpan(5), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _)))
+        || (cmd.StartsWith("seek:") && double.TryParse(cmd.AsSpan(5), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _))
+        || cmd.StartsWith("playalbumfromsong:"))
     {
         remote.Commands.Enqueue(cmd);
         return Results.Ok();

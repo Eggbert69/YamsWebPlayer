@@ -3121,6 +3121,19 @@ function rcExec(cmd) {
   else if (cmd === 'pause')          playerPause();
   else if (cmd === 'stop')           playerStop();
   else if (cmd.startsWith('seek:')) { const p = parseFloat(cmd.slice(5)); if (!isNaN(p) && audioEl) audioEl.currentTime = p; }
+  else if (cmd.startsWith('playalbumfromsong:')) {
+    const parts = cmd.slice(18).split(':');
+    const aId = parseInt(parts[0]), sId = parseInt(parts[1]);
+    if (!isNaN(aId) && !isNaN(sId)) playerPlayAlbumFrom(aId, sId);
+  }
+}
+
+async function playerPlayAlbumFrom(albumId, songId) {
+  queueClear();
+  Q.active = true;
+  Q.pos    = 0;
+  try { Q.songs = await queueBuildFrom(albumId, songId); } catch { Q.songs = []; }
+  if (Q.songs.length) playCurrent();
 }
 
 // Kommando an den Server (auch vom lokalen Gamepad genutzt – ein Pfad für alles).

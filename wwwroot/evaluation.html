@@ -62,7 +62,8 @@ body{margin:0;background:var(--bg);color:var(--fg);
 .track.playing .tr-title{color:var(--good)}
 .tr-old{font-size:11px;color:var(--dim);margin-top:1px}
 .tr-dur{font-size:12px;color:var(--dim);flex:0 0 auto}
-.note-row{display:flex;gap:5px;padding:0 10px 10px}
+.note-row{display:none;gap:5px;padding:0 10px 10px}
+.track.playing .note-row{display:flex}
 .nb{flex:1;height:38px;border-radius:8px;border:1px solid var(--line);background:transparent;
     color:var(--dim);font-size:14px;font-weight:700;cursor:pointer;transition:background .1s,color .1s}
 .nb:active{opacity:.7}
@@ -184,14 +185,14 @@ body{margin:0;background:var(--bg);color:var(--fg);
 <script>
 const $ = id => document.getElementById(id);
 
-let albumId       = 0;
-let tracks        = [];
-let notes         = {};   // songId → note (1-5)
-let selAmg        = 3;
-let selCover      = 2;
-let selWert       = 0;    // 0 = auto
-let wertManual    = false;
-let currentSongId = null;
+let albumId        = 0;
+let tracks         = [];
+let notes          = {};   // songId → note (1-5)
+let selAmg         = 3;
+let selCover       = 2;
+let selWert        = 0;    // 0 = auto
+let wertManual     = false;
+let currentSongId  = null;
 let albumRatingOld = 0;
 
 // ── Formula (1:1 aus New CD.cs / ReRateForm.cs) ──────────────────────────────
@@ -273,7 +274,7 @@ function renderTracks() {
   </div>
   <div class="note-row">${[1,2,3,4,5].map(n=>
     `<button class="nb n${n}${cur===n?' sel':''}" data-sid="${t.id}" data-n="${n}"
-     onclick="event.stopPropagation();setNote(${t.id},${n})">${n}</button>`).join('')}</div>
+     onpointerdown="setNote(${t.id},${n})">${n}</button>`).join('')}</div>
 </div>`;
   }
   $('trackList').innerHTML = h;
@@ -303,14 +304,8 @@ async function send(cmd) {
 }
 
 function jumpToTrack(songId) {
-  if (!currentSongId || currentSongId === songId) return;
-  const org  = tracks.filter(t => t.org === 'T');
-  const from = org.findIndex(t => t.id === currentSongId);
-  const to   = org.findIndex(t => t.id === songId);
-  if (from < 0 || to < 0) return;
-  const diff = to - from;
-  const cmd  = diff > 0 ? 'next' : 'prev';
-  for (let i = 0; i < Math.abs(diff); i++) send(cmd);
+  if (!albumId || currentSongId === songId) return;
+  send(`playalbumfromsong:${albumId}:${songId}`);
 }
 
 function renderRemoteState(st) {
@@ -442,6 +437,15 @@ async function loadAlbum() {
   }
 }
 
+async function rewindToFirst() {
+  const org = tracks.filter(t => t.org === 'T');
+  if (!org.length || !albumId) return;
+  const firstSongId = org[0].id;
+  if (currentSongId === firstSongId) return;
+  try { await fetch('/api/remote/command', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ cmd: `playalbumfromsong:${albumId}:${firstSongId}` }) }); }
+  catch {}
+}
+
 async function load() {
   const params = new URLSearchParams(location.search);
   albumId = +(params.get('id') || 0);
@@ -457,6 +461,14 @@ async function load() {
   }
 
   await loadAlbum();
+
+  // Initialen State holen → currentSongId setzen → zu Song 1 zurückspulen
+  try {
+    const st = await (await fetch('/api/remote/state', { cache:'no-store' })).json();
+    renderRemoteState(st);
+    await rewindToFirst();
+  } catch {}
+
   poll();
 }
 
