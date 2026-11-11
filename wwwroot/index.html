@@ -942,7 +942,7 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
   <button id="q-next" class="q-nav" title="Nächster Titel">&#9197;</button>
   <div id="vol-wrap" title="Lautstärke">
     <span>&#128266;</span>
-    <input id="vol-slider" type="range" min="0" max="100" value="80">
+    <input id="vol-slider" type="range" min="0" max="100" value="50" autocomplete="off">
   </div>
   <button id="ss-open-btn" title="Vollbild-Ansicht (Screensaver)">&#9974;</button>
   <button id="eq-btn" title="Equalizer">EQ</button>
@@ -1197,7 +1197,8 @@ async function init() {
   loadAlbums();
   bindEvents();
   bindAudioEvents();
-  // Lautstärke aus HTML-Slider-Startwert setzen (80% Standard)
+  // Lautstärke aus localStorage wiederherstellen (sonst 50 % Standard)
+  volLoad();
   audioEl.volume = parseInt($('vol-slider').value) / 100;
   rcStart();   // Fernsteuerungs-Empfänger (iPhone-Remote + optional Gamepad) starten
 }
@@ -2594,6 +2595,7 @@ function bindEvents() {
   // Lautstärke
   $('vol-slider').addEventListener('input', e => {
     audioEl.volume = parseInt(e.target.value) / 100;
+    try { localStorage.setItem('volume', e.target.value); } catch {}
   });
 }
 
@@ -2668,6 +2670,30 @@ const EQ_PRESETS = {
 let eqCtx    = null;   // AudioContext (nur einer erlaubt pro Seite)
 let eqFilters = [];    // Array der 10 BiquadFilterNodes
 let eqSource  = null;  // MediaElementSourceNode (Brücke zwischen <audio> und Web Audio API)
+let eqPreamp  = null;  // GainNode vor den Filtern: senkt Pegel um die stärkste EQ-Anhebung (gegen Clipping)
+
+/**
+ * Lautstärke aus localStorage laden (0–100). Fehlt der Wert, bleibt der
+ * HTML-Startwert (50 %) stehen.
+ */
+function volLoad() {
+  try {
+    const v = parseInt(localStorage.getItem('volume'));
+    if (!isNaN(v) && v >= 0 && v <= 100) $('vol-slider').value = v;
+  } catch {}
+}
+
+/**
+ * Headroom: Hebt ein EQ-Band z. B. um +8 dB an, übersteuert ein ohnehin
+ * laut gemastertes Lied → Verzerrung. Deshalb wird das Signal vor den Filtern
+ * um genau die größte positive Anhebung abgesenkt (wie ein "Preamp" bei
+ * Hardware-EQs). Bei Flat (alle ≤ 0 dB) bleibt der Pegel unverändert.
+ */
+function eqUpdatePreamp() {
+  if (!eqPreamp) return;
+  const maxBoost = Math.max(0, ...eqFilters.map(f => f.gain.value));
+  eqPreamp.gain.value = Math.pow(10, -maxBoost / 20);
+}
 
 
 /**
@@ -2684,7 +2710,9 @@ function eqInit() {
   // (größerer Buffer, weniger Glitches) statt für niedrige Latenz (Musikproduktion).
   eqCtx    = new AudioContext({ latencyHint: 'playback' });
   eqSource = eqCtx.createMediaElementSource(audioEl);
-  let node = eqSource;
+  eqPreamp = eqCtx.createGain();
+  eqSource.connect(eqPreamp);
+  let node = eqPreamp;
   EQ_FREQS.forEach(freq => {
     const f = eqCtx.createBiquadFilter();
     f.type            = 'peaking';  // Verstärkt/dämpft Bereich um Mittenfrequenz
@@ -2708,6 +2736,7 @@ function eqInit() {
  */
 function eqSetBand(i, db) {
   if (eqFilters[i]) eqFilters[i].gain.value = db;
+  eqUpdatePreamp();
   const slider = document.querySelector(`.eq-slider[data-i="${i}"]`);
   const label  = document.querySelector(`.eq-db[data-i="${i}"]`);
   if (slider) slider.value = db;

@@ -855,9 +855,17 @@ progBar.addEventListener('change', () => {
   seekDragging = false;
 });
 
-volBar.value = 0.8;
-audio.volume = 0.8;
-volBar.addEventListener('input', () => { audio.volume = volBar.value; });
+// Lautstärke mit index.html teilen (localStorage 'volume' = 0–100, Standard 50)
+{
+  let v = 50;
+  try { const s = parseInt(localStorage.getItem('volume')); if (!isNaN(s) && s >= 0 && s <= 100) v = s; } catch {}
+  volBar.value = v / 100;
+  audio.volume = v / 100;
+}
+volBar.addEventListener('input', () => {
+  audio.volume = volBar.value;
+  try { localStorage.setItem('volume', String(Math.round(volBar.value * 100))); } catch {}
+});
 
 // ── Keyboard shortcuts ─────────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
