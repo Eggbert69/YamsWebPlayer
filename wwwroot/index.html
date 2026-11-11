@@ -409,6 +409,12 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
   padding:3px 10px;transition:background .15s;
 }
 .btn-play-album:hover{background:var(--play-h);color:#000}
+.btn-eval-album{
+  font-size:11px;font-weight:700;text-decoration:none;
+  background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:12px;
+  padding:3px 10px;transition:color .15s,border-color .15s;
+}
+.btn-eval-album:hover{color:var(--gold);border-color:var(--gold)}
 
 .track-row{
   display:flex;gap:8px;padding:3px 6px;border-radius:4px;
@@ -1680,7 +1686,7 @@ function renderTracks(albumId) {
   let html = `<div class="tracks-header">
     <span class="tc">${visibleTracks.length} Tracks</span>
     ${visibleTracks.length > 0
-      ? `<button class="btn-play-album" data-album="${albumId}">&#9654; Album abspielen</button>`
+      ? `<button class="btn-play-album" data-album="${albumId}">&#9654; Album abspielen</button><a class="btn-eval-album" href="/evaluation?id=${albumId}" target="_blank">&#9998; Bewerten</a>`
       : ''}
   </div>`;
 

@@ -48,6 +48,9 @@ using Microsoft.Data.SqlClient;
 // ── App-Builder & Dienste ─────────────────────────────────────────────────────
 var builder = WebApplication.CreateBuilder(args);
 
+// Auf allen Netzwerkkarten lauschen (nicht nur localhost) → iPhone-Zugriff
+builder.WebHost.UseUrls("http://0.0.0.0:5102");
+
 // CORS: Alle Origins erlauben – notwendig damit der Browser Audio-Streams
 // von der API abrufen darf, auch wenn Frontend und API auf unterschiedlichen
 // Ports laufen (z. B. während der Entwicklung).
@@ -1854,6 +1857,136 @@ app.MapGet("/generator", (IWebHostEnvironment env) =>
 app.MapGet("/remote", (IWebHostEnvironment env) =>
     Results.File(Path.Combine(env.WebRootPath ?? "wwwroot", "remote.html"), "text/html"));
 
+// ── GET /api/evaluation/album/{id} ────────────────────────────────────────────
+app.MapGet("/api/evaluation/album/{id:int}", async (int id) =>
+{
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+
+    double amg = 0, wertung = 0;
+    int    cover = 0, wert = 0;
+    await using (var cmd = conn.CreateCommand())
+    {
+        cmd.CommandText = @"
+            SELECT ISNULL(CDHeadAMG,0), ISNULL(CDHeadCover,0),
+                   ISNULL(CDHeadWert,0), ISNULL(CDHeadWertung,0)
+            FROM CDHead WHERE CDHeadId = @id";
+        cmd.Parameters.AddWithValue("@id", id);
+        await using var r = await cmd.ExecuteReaderAsync();
+        if (await r.ReadAsync())
+        {
+            amg     = Convert.ToDouble(r[0]);
+            cover   = Convert.ToInt32(r[1]);
+            wert    = Convert.ToInt32(r[2]);
+            wertung = Convert.ToDouble(r[3]);
+        }
+    }
+
+    var proposals = new List<object>();
+    await using (var cmd = conn.CreateCommand())
+    {
+        cmd.CommandText = @"
+            SELECT r.CDSongId, r.NoteNeu, ISNULL(s.CDSongNote,0)
+            FROM CDSongReRate r
+            JOIN CDSong s ON s.CDSongId = r.CDSongId
+            WHERE r.CDHeadId = @id AND r.ProcessedAt IS NULL";
+        cmd.Parameters.AddWithValue("@id", id);
+        await using var r = await cmd.ExecuteReaderAsync();
+        while (await r.ReadAsync())
+            proposals.Add(new {
+                songId  = Convert.ToInt32(r[0]),
+                noteNeu = Convert.ToInt32(r[1]),
+                noteAlt = Convert.ToInt32(r[2])
+            });
+    }
+
+    return Results.Json(new { amg, cover, wert, wertung, proposals });
+});
+
+// ── POST /api/evaluation/save ─────────────────────────────────────────────────
+// Song-Noten → CDSongReRate (Staging für YAMS ReRateForm).
+// AMG/Cover/Wert/d1/Wertung → CDHead direkt. CDHeadState = 'V' (Vorgemerkt).
+app.MapPost("/api/evaluation/save", async (EvalSaveDto body) =>
+{
+    if (body.AlbumId <= 0) return Results.BadRequest(new { error = "albumId fehlt" });
+
+    await using var conn = NewConn();
+    await conn.OpenAsync();
+
+    int saved = 0;
+    foreach (var s in body.Songs ?? new List<EvalSongDto>())
+    {
+        if (s.Note < 1 || s.Note > 5) continue;
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+            UPDATE CDSongReRate
+               SET NoteNeu = @n, CreatedAt = SYSDATETIME()
+             WHERE CDSongId = @s AND ProcessedAt IS NULL;
+            IF @@ROWCOUNT = 0
+                INSERT INTO CDSongReRate (CDSongId, CDHeadId, NoteNeu) VALUES (@s, @h, @n);";
+        cmd.Parameters.AddWithValue("@s", s.SongId);
+        cmd.Parameters.AddWithValue("@h", body.AlbumId);
+        cmd.Parameters.AddWithValue("@n", s.Note);
+        await cmd.ExecuteNonQueryAsync();
+        saved++;
+    }
+
+    // d1 aus CDSong + CDSongReRate (zeitgewichtet, CDSongOrg='T')
+    double d1 = 0;
+    await using (var cmd = conn.CreateCommand())
+    {
+        cmd.CommandText = @"
+            SELECT ISNULL(CAST(r.NoteNeu AS float), CAST(NULLIF(s.CDSongNote,0) AS float)) AS EffNote,
+                   ISNULL(s.CDSongSecs, 0) AS Secs
+            FROM CDSong s
+            LEFT JOIN CDSongReRate r ON r.CDSongId = s.CDSongId AND r.ProcessedAt IS NULL
+            WHERE s.CDHeadId = @h AND s.CDSongOrg = 'T'";
+        cmd.Parameters.AddWithValue("@h", body.AlbumId);
+        await using var r = await cmd.ExecuteReaderAsync();
+        double sumNote = 0, sumSecs = 0;
+        while (await r.ReadAsync())
+        {
+            if (r.IsDBNull(0)) continue;
+            double n = Convert.ToDouble(r[0]);
+            double sec = Convert.ToDouble(r[1]);
+            sumNote += n * sec;
+            sumSecs += sec;
+        }
+        if (sumSecs > 0) d1 = sumNote / sumSecs;
+    }
+
+    double wertung = 0;
+    if (d1 > 0 && body.Amg > 0 && body.Cover > 0 && body.Wert > 0)
+        wertung = (d1 * 5 + body.Wert * 2 + body.Amg * 2 + body.Cover) / 10;
+
+    await using (var cmd = conn.CreateCommand())
+    {
+        cmd.CommandText = @"
+            UPDATE CDHead
+               SET CDHeadAMG     = @amg,
+                   CDHeadCover   = @cov,
+                   CDHeadWert    = @wert,
+                   CDHeadSongs   = @d1,
+                   CDHeadWertung = @wertung,
+                   CDHeadTotal   = @wertung,
+                   CDHeadState   = 'V'
+             WHERE CDHeadId = @h";
+        cmd.Parameters.AddWithValue("@amg",     body.Amg);
+        cmd.Parameters.AddWithValue("@cov",     body.Cover);
+        cmd.Parameters.AddWithValue("@wert",    body.Wert);
+        cmd.Parameters.AddWithValue("@d1",      d1);
+        cmd.Parameters.AddWithValue("@wertung", wertung);
+        cmd.Parameters.AddWithValue("@h",       body.AlbumId);
+        await cmd.ExecuteNonQueryAsync();
+    }
+
+    return Results.Json(new { songsSaved = saved, albumId = body.AlbumId, d1, wertungNew = Math.Round(wertung, 4) });
+});
+
+// ── GET /evaluation ───────────────────────────────────────────────────────────
+app.MapGet("/evaluation", (IWebHostEnvironment env) =>
+    Results.File(Path.Combine(env.WebRootPath ?? "wwwroot", "evaluation.html"), "text/html"));
+
 // ── Server starten ─────────────────────────────────────────────────────────────
 app.Run();
 
@@ -1862,6 +1995,8 @@ app.Run();
 // ════════════════════════════════════════════════════════════════════════════════
 record ReRateDto(int Note);
 record CommandDto(string? Cmd);
+record EvalSongDto(int SongId, int Note);
+record EvalSaveDto(int AlbumId, List<EvalSongDto>? Songs, double Amg, int Cover, int Wert);
 record NowPlayingDto(int SongId, int HeadId, string? Title, string? Artist, string? Album, int Note, double Pos, double Dur);
 record SetFlagDto(string Flag, bool Remove, int? PlaylistId);
 

@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>YAMS Evaluation</title>
+<style>
+:root{--bg:#0c0e13;--card:#161a22;--line:#262c38;--fg:#eef1f6;--dim:#8a93a3;
+     --good:#2e9e52;--nt1:#22c55e;--nt2:#84cc16;--nt3:#eab308;--nt4:#f97316;--nt5:#ef4444}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--fg);
+     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;
+     padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.wrap{max-width:520px;margin:0 auto;padding-bottom:120px}
+
+/* Page header */
+.page-head{display:flex;align-items:center;gap:10px;padding:14px 14px 10px}
+.back-btn{background:none;border:none;color:var(--dim);font-size:22px;cursor:pointer;padding:4px 8px 4px 0;line-height:1}
+.page-title{font-size:15px;font-weight:700;color:var(--dim)}
+
+/* Album card */
+.album-card{display:flex;gap:14px;padding:0 14px 14px}
+.a-cover{width:84px;height:84px;border-radius:12px;background:#0f1620;object-fit:cover;flex:0 0 auto}
+.a-meta{min-width:0;display:flex;flex-direction:column;justify-content:center;gap:3px}
+.a-artist{font-size:13px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a-title{font-size:18px;font-weight:800;line-height:1.15;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.a-year{font-size:12px;color:var(--dim)}
+.a-wertung{font-size:12px;color:var(--dim);margin-top:2px}
+
+/* Now playing / mini player */
+.player{background:var(--card);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+        padding:10px 14px;display:none}
+.player.vis{display:block}
+.player-top{display:flex;align-items:center;gap:10px;margin-bottom:7px}
+.play-pause{background:none;border:none;color:var(--fg);font-size:26px;cursor:pointer;padding:0;line-height:1;flex:0 0 auto}
+.player-info{flex:1;min-width:0}
+.player-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.player-time{font-size:11px;color:var(--dim);margin-top:1px}
+.seek{width:100%;height:4px;-webkit-appearance:none;appearance:none;background:var(--line);
+      border-radius:2px;cursor:pointer;outline:none;display:block}
+.seek::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--good);cursor:pointer}
+
+/* Section label */
+.slabel{font-size:11px;font-weight:700;color:var(--dim);letter-spacing:.06em;padding:14px 14px 6px;text-transform:uppercase}
+
+/* Track rows */
+.tracks{padding:0 14px}
+.track{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.track-row{display:flex;align-items:center;gap:8px;padding:10px 12px 6px;cursor:pointer}
+.track.playing .track-row{cursor:default}
+.tr-num{font-size:12px;color:var(--dim);min-width:22px;text-align:right;flex:0 0 auto}
+.tr-info{flex:1;min-width:0}
+.tr-title{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.track.playing .tr-title{color:var(--good)}
+.tr-old{font-size:11px;color:var(--dim);margin-top:1px}
+.tr-dur{font-size:12px;color:var(--dim);flex:0 0 auto}
+.note-row{display:flex;gap:5px;padding:0 10px 10px}
+.nb{flex:1;height:38px;border-radius:8px;border:1px solid var(--line);background:transparent;
+    color:var(--dim);font-size:14px;font-weight:700;cursor:pointer;transition:background .1s,color .1s}
+.nb:active{opacity:.7}
+.nb.n1{border-color:var(--nt1)}.nb.n2{border-color:var(--nt2)}.nb.n3{border-color:var(--nt3)}.nb.n4{border-color:var(--nt4)}.nb.n5{border-color:var(--nt5)}
+.nb.sel.n1{background:var(--nt1);color:#000}.nb.sel.n2{background:var(--nt2);color:#000}
+.nb.sel.n3{background:var(--nt3);color:#000}.nb.sel.n4{background:var(--nt4);color:#000}.nb.sel.n5{background:var(--nt5);color:#fff}
+
+/* Scoring section */
+.scoring{margin:0 14px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px}
+.sc-row{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.sc-label{font-size:12px;color:var(--dim);min-width:60px;flex:0 0 auto}
+.sc-val{font-size:15px;font-weight:700;min-width:70px}
+.sc-btns{display:flex;gap:4px;flex:1;flex-wrap:wrap}
+.sc-btn{flex:1;min-width:36px;height:36px;border:1px solid var(--line);border-radius:7px;
+        background:transparent;color:var(--dim);font-size:12px;font-weight:700;cursor:pointer}
+.sc-btn:active{opacity:.7}
+.sc-btn.sel{background:var(--good);border-color:var(--good);color:#fff}
+
+/* AMG slider */
+.amg-wrap{flex:1;display:flex;flex-direction:column;gap:4px}
+.amg-slider{width:100%;height:6px;-webkit-appearance:none;appearance:none;background:var(--line);
+            border-radius:3px;cursor:pointer;outline:none}
+.amg-slider::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+            background:var(--good);cursor:pointer;border:2px solid var(--bg)}
+.amg-ticks{display:flex;justify-content:space-between;font-size:10px;color:var(--dim);padding:0 2px}
+
+/* Wertung result */
+.wertung-box{margin-top:4px;background:#0f1620;border-radius:12px;padding:12px;text-align:center}
+.wert-num{font-size:36px;font-weight:900;line-height:1}
+.wert-label{font-size:12px;color:var(--dim);margin-top:3px}
+.wert-old{font-size:12px;color:var(--dim);margin-top:4px}
+.wert-stars{font-size:14px;margin-top:4px}
+
+/* d1 breakdown */
+.d1-row{display:flex;justify-content:space-between;font-size:12px;color:var(--dim);margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.d1-row span:last-child{font-weight:700;color:var(--fg)}
+
+/* Save */
+.save-wrap{padding:14px}
+.save-btn{width:100%;height:54px;border:none;border-radius:14px;background:var(--good);
+          color:#fff;font-size:17px;font-weight:700;cursor:pointer;transition:background .15s}
+.save-btn:disabled{background:#1f2530;color:var(--dim);cursor:default}
+.save-info{text-align:center;font-size:13px;color:var(--dim);min-height:20px;margin-top:8px}
+
+audio{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="page-head">
+    <button class="back-btn" onclick="history.back()">&#8592;</button>
+    <span class="page-title">Album Evaluation</span>
+  </div>
+
+  <div class="album-card">
+    <img class="a-cover" id="cover" alt="">
+    <div class="a-meta">
+      <div class="a-artist" id="artist">—</div>
+      <div class="a-title"  id="title">Laden…</div>
+      <div class="a-year"   id="year"></div>
+      <div class="a-wertung" id="wertOld"></div>
+    </div>
+  </div>
+
+  <div class="player" id="player">
+    <div class="player-top">
+      <button class="play-pause" id="ppBtn" onclick="togglePlay()">&#9654;</button>
+      <div class="player-info">
+        <div class="player-title" id="pTitle">—</div>
+        <div class="player-time" id="pTime">0:00 / 0:00</div>
+      </div>
+    </div>
+    <input class="seek" type="range" id="seekBar" value="0" step="1" oninput="onSeek(this.value)">
+  </div>
+
+  <div class="slabel">Songs</div>
+  <div class="tracks" id="trackList"></div>
+
+  <div class="slabel">Album Bewertung</div>
+  <div class="scoring">
+    <div class="d1-row">
+      <span>Songs (zeitgewichtet d1)</span>
+      <span id="d1Disp">—</span>
+    </div>
+    <div class="sc-row">
+      <span class="sc-label">Wert</span>
+      <span class="sc-val" id="wertDisp">—</span>
+      <div class="sc-btns" id="wertBtns"></div>
+    </div>
+    <div class="sc-row">
+      <span class="sc-label">AMG</span>
+      <span class="sc-val" id="amgDisp">—</span>
+      <div class="amg-wrap">
+        <input class="amg-slider" type="range" id="amgSlider" min="1" max="5" step="0.5" value="3" oninput="onAmg(this.value)">
+        <div class="amg-ticks"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span></div>
+      </div>
+    </div>
+    <div class="sc-row">
+      <span class="sc-label">Cover</span>
+      <span class="sc-val" id="coverDisp">—</span>
+      <div class="sc-btns" id="coverBtns"></div>
+    </div>
+    <div class="wertung-box">
+      <div class="wert-num" id="wertungNum">—</div>
+      <div class="wert-label">Wertung neu (= alt ± Δ)</div>
+      <div class="wert-old" id="wertungOld"></div>
+    </div>
+  </div>
+
+  <div class="save-wrap">
+    <button class="save-btn" id="saveBtn" onclick="doSave()">Speichern &amp; vormerken</button>
+    <div class="save-info" id="saveInfo"></div>
+  </div>
+</div>
+
+<audio id="audioEl"></audio>
+
+<script>
+const $  = id => document.getElementById(id);
+const au = $('audioEl');
+
+let albumId   = 0;
+let tracks    = [];
+let notes     = {};   // songId → note (1-5)
+let selAmg    = 3;
+let selCover  = 2;
+let selWert   = 0;    // 0 = auto
+let wertManual = false;
+let currentId = 0;
+let albumRatingOld = 0;
+
+// ── Formula (1:1 aus New CD.cs / ReRateForm.cs) ──────────────────────────────
+function calcD1() {
+  let sumSecs = 0, sumNote = 0;
+  for (const t of tracks) {
+    if (t.org !== 'T') continue;
+    const n = notes[t.id];
+    if (!n || n < 1 || n > 5) continue;
+    sumSecs += t.secs || 0;
+    sumNote += n * (t.secs || 0);
+  }
+  return sumSecs > 0 ? sumNote / sumSecs : 0;
+}
+function cdNote(d1) {
+  if (d1 < 2.0)  return 1;
+  if (d1 < 2.5)  return 2;
+  if (d1 < 2.75) return 3;
+  if (d1 < 3.25) return 4;
+  return 5;
+}
+function calcWertung(d1, wert, amg, cover) {
+  if (!d1 || !wert || !amg || !cover) return 0;
+  return (d1 * 5 + wert * 2 + amg * 2 + cover) / 10;
+}
+
+// ── Scoring UI ───────────────────────────────────────────────────────────────
+function updateScoring() {
+  const d1 = calcD1();
+  $('d1Disp').textContent = d1 > 0 ? d1.toFixed(4) : '—';
+
+  if (!wertManual || selWert === 0) selWert = d1 > 0 ? cdNote(d1) : 0;
+  renderWertBtns();
+
+  const w = calcWertung(d1, selWert, selAmg, selCover);
+  const el = $('wertungNum');
+  el.textContent = w > 0 ? w.toFixed(4) : '—';
+  el.style.color = !w ? 'var(--dim)' :
+    w < 1.75 ? '#22c55e' : w < 2.25 ? '#84cc16' : w < 2.75 ? '#eab308' : w < 3 ? '#f97316' : '#ef4444';
+}
+
+function renderWertBtns() {
+  $('wertBtns').innerHTML = [1,2,3,4,5].map(n =>
+    `<button class="sc-btn${selWert===n?' sel':''}" onclick="setWert(${n})">${n}</button>`
+  ).join('');
+  $('wertDisp').textContent = selWert || '—';
+}
+function renderCoverBtns() {
+  $('coverBtns').innerHTML = [1,2,3,4,5].map(n =>
+    `<button class="sc-btn${selCover===n?' sel':''}" onclick="setCover(${n})">${n}</button>`
+  ).join('');
+  $('coverDisp').textContent = selCover || '—';
+}
+function setWert(n)  { selWert = n; wertManual = true;  renderWertBtns(); updateScoring(); }
+function setCover(n) { selCover = n; renderCoverBtns(); updateScoring(); }
+function onAmg(v)    { selAmg = +v; $('amgDisp').textContent = selAmg; updateScoring(); }
+
+// ── Track list ───────────────────────────────────────────────────────────────
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmt(s) { s=Math.round(s); return Math.floor(s/60)+':'+(s%60<10?'0':'')+s%60; }
+
+const ntColor = ['','#22c55e','#84cc16','#eab308','#f97316','#ef4444'];
+
+function renderTracks() {
+  let h = '';
+  for (const t of tracks) {
+    if (t.org !== 'T') continue;
+    const cur  = notes[t.id] || 0;
+    const dbN  = t.rating || 0;
+    const dbLabel = dbN > 0 ? `Note ${dbN}` : 'unbewertet';
+    h += `<div class="track" id="tk${t.id}">
+  <div class="track-row" onclick="playTrack(${t.id})">
+    <span class="tr-num">${t.trackNum||''}</span>
+    <div class="tr-info">
+      <div class="tr-title">${esc(t.title)}</div>
+      <div class="tr-old">DB: ${dbLabel}${cur&&cur!==dbN?' → <b style="color:'+ntColor[cur]+'">'+cur+'</b>':''}</div>
+    </div>
+    <span class="tr-dur">${fmt(t.secs)}</span>
+  </div>
+  <div class="note-row">${[1,2,3,4,5].map(n=>
+    `<button class="nb n${n}${cur===n?' sel':''}" data-sid="${t.id}" data-n="${n}"
+     onclick="event.stopPropagation();setNote(${t.id},${n})">${n}</button>`).join('')}</div>
+</div>`;
+  }
+  $('trackList').innerHTML = h;
+}
+
+function setNote(sid, n) {
+  notes[sid] = n;
+  document.querySelectorAll(`.nb[data-sid="${sid}"]`).forEach(b => {
+    b.classList.toggle('sel', +b.dataset.n === n);
+  });
+  // update tr-old line
+  const t = tracks.find(x => x.id === sid);
+  if (t) {
+    const dbLabel = t.rating ? `Note ${t.rating}` : 'unbewertet';
+    const diff    = n !== t.rating ? ` → <b style="color:${ntColor[n]}">${n}</b>` : '';
+    const el = document.querySelector(`#tk${sid} .tr-old`);
+    if (el) el.innerHTML = `DB: ${dbLabel}${diff}`;
+  }
+  updateScoring();
+}
+
+// ── Audio ────────────────────────────────────────────────────────────────────
+function playTrack(songId) {
+  const t = tracks.find(x => x.id === songId);
+  if (!t) return;
+  currentId = songId;
+  au.src = '/api/stream/' + songId;
+  au.play();
+  $('pTitle').textContent = (t.trackNum ? t.trackNum + '. ' : '') + t.title;
+  $('player').classList.add('vis');
+  document.querySelectorAll('.track').forEach(el => el.classList.remove('playing'));
+  $('tk' + songId)?.classList.add('playing');
+}
+
+function togglePlay() {
+  if (au.paused) au.play(); else au.pause();
+}
+
+function onSeek(v) { if (au.duration) au.currentTime = +v; }
+
+au.addEventListener('timeupdate', () => {
+  const p = au.currentTime, d = au.duration || 0;
+  $('seekBar').max   = Math.round(d);
+  $('seekBar').value = Math.round(p);
+  $('pTime').textContent = fmt(p) + ' / ' + fmt(d);
+});
+au.addEventListener('play',  () => { $('ppBtn').textContent = '⏸'; });
+au.addEventListener('pause', () => { $('ppBtn').textContent = '▶'; });
+au.addEventListener('ended', () => {
+  $('ppBtn').textContent = '▶';
+  const org = tracks.filter(t => t.org === 'T');
+  const i   = org.findIndex(t => t.id === currentId);
+  if (i >= 0 && i < org.length - 1) playTrack(org[i + 1].id);
+});
+
+// ── Save ─────────────────────────────────────────────────────────────────────
+async function doSave() {
+  $('saveBtn').disabled = true;
+  $('saveInfo').textContent = 'Speichere…';
+  $('saveInfo').style.color = 'var(--dim)';
+
+  const songs = Object.entries(notes)
+    .filter(([,n]) => n >= 1 && n <= 5)
+    .map(([id, note]) => ({ songId: +id, note }));
+
+  const d1   = calcD1();
+  const wert = selWert || (d1 > 0 ? cdNote(d1) : 0);
+
+  try {
+    const r = await fetch('/api/evaluation/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ albumId, songs, amg: selAmg, cover: selCover, wert })
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const d = await r.json();
+    $('saveInfo').textContent = `✓ ${d.songsSaved} Songs vorgemerkt · Album markiert (Wertung neu: ${d.wertungNew})`;
+    $('saveInfo').style.color = '#22c55e';
+  } catch(e) {
+    $('saveInfo').textContent = '✗ ' + e.message;
+    $('saveInfo').style.color = '#ef4444';
+    $('saveBtn').disabled = false;
+  }
+}
+
+// ── Load ─────────────────────────────────────────────────────────────────────
+async function load() {
+  const params = new URLSearchParams(location.search);
+  albumId = +(params.get('id') || 0);
+  if (!albumId) { $('title').textContent = 'Kein Album ausgewählt'; return; }
+
+  try {
+    const [albumRes, evalRes] = await Promise.all([
+      fetch(`/api/albums/${albumId}`),
+      fetch(`/api/evaluation/album/${albumId}`)
+    ]);
+    if (!albumRes.ok) throw new Error('Album nicht gefunden');
+    const { album, tracks: t } = await albumRes.json();
+    tracks = t;
+
+    $('artist').textContent = album.artist;
+    $('title').textContent  = album.title;
+    $('year').textContent   = album.year > 0 ? album.year : '';
+    albumRatingOld = album.rating || 0;
+    $('wertOld').textContent = albumRatingOld > 0
+      ? `Wertung: ${albumRatingOld.toFixed(4)}`
+      : 'noch nicht bewertet';
+    if (album.id) $('cover').src = '/api/cover/' + album.id;
+    $('wertungOld').textContent = albumRatingOld > 0
+      ? `Alt: ${albumRatingOld.toFixed(4)}`
+      : '';
+
+    // init notes from current DB rating
+    for (const tr of tracks) {
+      if (tr.org === 'T' && tr.rating > 0) notes[tr.id] = tr.rating;
+    }
+
+    // override with AMG/Cover from DB + pending proposals from evaluation endpoint
+    if (evalRes.ok) {
+      const ev = await evalRes.json();
+      selAmg   = ev.amg   > 0 ? ev.amg   : (album.amg > 0 ? album.amg : 3);
+      selCover = ev.cover > 0 ? ev.cover : 2;
+      for (const p of (ev.proposals || [])) {
+        notes[p.songId] = p.noteNeu;
+      }
+    } else {
+      selAmg   = album.amg > 0 ? album.amg : 3;
+      selCover = 2;
+    }
+
+    $('amgSlider').value = selAmg;
+    $('amgDisp').textContent = selAmg;
+
+    renderTracks();
+    renderCoverBtns();
+    updateScoring();
+
+  } catch(e) {
+    $('title').textContent = 'Fehler: ' + e.message;
+  }
+}
+
+load();
+</script>
+</body>
+</html>
