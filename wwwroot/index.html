@@ -3115,11 +3115,12 @@ function playerPause()     { audioEl.pause(); }   // nur pausieren – Queue ble
 function playerStop()      { audioEl.pause(); audioEl.src = ''; queueClear(); bgActive = false; bgAudioEl.pause(); releaseWakeLock(); if (SS.open) ssSync(); }
 
 function rcExec(cmd) {
-  if      (cmd === 'next')      playerNext();
-  else if (cmd === 'prev')      playerPrev();
-  else if (cmd === 'playpause') playerPlayPause();
-  else if (cmd === 'pause')     playerPause();
-  else if (cmd === 'stop')      playerStop();
+  if      (cmd === 'next')           playerNext();
+  else if (cmd === 'prev')           playerPrev();
+  else if (cmd === 'playpause')      playerPlayPause();
+  else if (cmd === 'pause')          playerPause();
+  else if (cmd === 'stop')           playerStop();
+  else if (cmd.startsWith('seek:')) { const p = parseFloat(cmd.slice(5)); if (!isNaN(p) && audioEl) audioEl.currentTime = p; }
 }
 
 // Kommando an den Server (auch vom lokalen Gamepad genutzt – ein Pfad für alles).

@@ -46,8 +46,8 @@ body{margin:0;background:var(--bg);color:var(--fg);
 .player-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .player-time{font-size:11px;color:var(--dim);margin-top:1px}
 .seek{width:100%;height:4px;-webkit-appearance:none;appearance:none;background:var(--line);
-      border-radius:2px;outline:none;display:block;pointer-events:none}
-.seek::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--good)}
+      border-radius:2px;outline:none;display:block;cursor:pointer}
+.seek::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--good);cursor:pointer}
 
 /* Section label */
 .slabel{font-size:11px;font-weight:700;color:var(--dim);letter-spacing:.06em;padding:14px 14px 6px;text-transform:uppercase}
@@ -55,7 +55,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
 /* Track rows */
 .tracks{padding:0 14px}
 .track{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden}
-.track-row{display:flex;align-items:center;gap:8px;padding:10px 12px 6px}
+.track-row{display:flex;align-items:center;gap:8px;padding:10px 12px 6px;cursor:pointer}
 .tr-num{font-size:12px;color:var(--dim);min-width:22px;text-align:right;flex:0 0 auto}
 .tr-info{flex:1;min-width:0}
 .tr-title{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -138,7 +138,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
         <div class="player-time" id="pTime">—</div>
       </div>
     </div>
-    <input class="seek" type="range" id="seekBar" value="0" step="1">
+    <input class="seek" type="range" id="seekBar" value="0" step="1" onchange="send('seek:'+this.value)">
   </div>
 
   <div class="slabel">Songs</div>
@@ -263,7 +263,7 @@ function renderTracks() {
     const dbN  = t.rating || 0;
     const dbLabel = dbN > 0 ? `Note ${dbN}` : 'unbewertet';
     h += `<div class="track" id="tk${t.id}">
-  <div class="track-row">
+  <div class="track-row" onclick="jumpToTrack(${t.id})">
     <span class="tr-num">${t.trackNum||''}</span>
     <div class="tr-info">
       <div class="tr-title">${esc(t.title)}</div>
@@ -302,10 +302,30 @@ async function send(cmd) {
   setTimeout(poll, 150);
 }
 
+function jumpToTrack(songId) {
+  if (!currentSongId || currentSongId === songId) return;
+  const org  = tracks.filter(t => t.org === 'T');
+  const from = org.findIndex(t => t.id === currentSongId);
+  const to   = org.findIndex(t => t.id === songId);
+  if (from < 0 || to < 0) return;
+  const diff = to - from;
+  const cmd  = diff > 0 ? 'next' : 'prev';
+  for (let i = 0; i < Math.abs(diff); i++) send(cmd);
+}
+
 function renderRemoteState(st) {
   const online = !!(st && st.online);
   const np = st && st.nowPlaying;
   $('dot').classList.toggle('on', online);
+
+  // c) anderes Album läuft → Seite neu laden
+  if (np && np.headId && albumId && np.headId !== albumId) {
+    albumId = np.headId;
+    history.replaceState(null, '', '/evaluation?id=' + albumId);
+    currentSongId = null;
+    loadAlbum();
+    return;
+  }
 
   if (np && albumId && np.headId === albumId) {
     $('pTitle').textContent = np.title || '—';
@@ -375,21 +395,9 @@ async function doSave() {
   }
 }
 
-// ── Load ─────────────────────────────────────────────────────────────────────
-async function load() {
-  const params = new URLSearchParams(location.search);
-  albumId = +(params.get('id') || 0);
-
-  if (!albumId) {
-    $('title').textContent = 'Lade aktuelles Album…';
-    try {
-      const st = await (await fetch('/api/remote/state', { cache: 'no-store' })).json();
-      albumId = st.nowPlaying?.headId || 0;
-    } catch {}
-    if (!albumId) { $('title').textContent = 'Kein Album läuft gerade'; return; }
-    history.replaceState(null, '', '/evaluation?id=' + albumId);
-  }
-
+// ── Load album data (wiederverwendbar beim Album-Wechsel) ─────────────────────
+async function loadAlbum() {
+  notes = {}; wertManual = false; selWert = 0;
   try {
     const [albumRes, evalRes] = await Promise.all([
       fetch(`/api/albums/${albumId}`),
@@ -411,19 +419,14 @@ async function load() {
       ? `Alt: ${albumRatingOld.toFixed(4)}`
       : '';
 
-    // init notes from current DB rating
     for (const tr of tracks) {
       if (tr.org === 'T' && tr.rating > 0) notes[tr.id] = tr.rating;
     }
-
-    // override with AMG/Cover from DB + pending proposals from evaluation endpoint
     if (evalRes.ok) {
       const ev = await evalRes.json();
       selAmg   = ev.amg   > 0 ? ev.amg   : (album.amg > 0 ? album.amg : 3);
       selCover = ev.cover > 0 ? ev.cover : 2;
-      for (const p of (ev.proposals || [])) {
-        notes[p.songId] = p.noteNeu;
-      }
+      for (const p of (ev.proposals || [])) notes[p.songId] = p.noteNeu;
     } else {
       selAmg   = album.amg > 0 ? album.amg : 3;
       selCover = 2;
@@ -431,15 +434,30 @@ async function load() {
 
     $('amgSlider').value = selAmg;
     $('amgDisp').textContent = selAmg;
-
     renderTracks();
     renderCoverBtns();
     updateScoring();
-    poll();
-
   } catch(e) {
     $('title').textContent = 'Fehler: ' + e.message;
   }
+}
+
+async function load() {
+  const params = new URLSearchParams(location.search);
+  albumId = +(params.get('id') || 0);
+
+  if (!albumId) {
+    $('title').textContent = 'Lade aktuelles Album…';
+    try {
+      const st = await (await fetch('/api/remote/state', { cache: 'no-store' })).json();
+      albumId = st.nowPlaying?.headId || 0;
+    } catch {}
+    if (!albumId) { $('title').textContent = 'Kein Album läuft gerade'; return; }
+    history.replaceState(null, '', '/evaluation?id=' + albumId);
+  }
+
+  await loadAlbum();
+  poll();
 }
 
 load();
