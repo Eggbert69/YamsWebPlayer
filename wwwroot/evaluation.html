@@ -33,18 +33,21 @@ body{margin:0;background:var(--bg);color:var(--fg);
 .a-year{font-size:12px;color:var(--dim)}
 .a-wertung{font-size:12px;color:var(--dim);margin-top:2px}
 
-/* Now playing / mini player */
+/* Remote mini player */
 .player{background:var(--card);border-top:1px solid var(--line);border-bottom:1px solid var(--line);
         padding:10px 14px;display:none}
 .player.vis{display:block}
-.player-top{display:flex;align-items:center;gap:10px;margin-bottom:7px}
-.play-pause{background:none;border:none;color:var(--fg);font-size:26px;cursor:pointer;padding:0;line-height:1;flex:0 0 auto}
+.player-top{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.dot{width:9px;height:9px;border-radius:50%;background:#b33;flex:0 0 auto}
+.dot.on{background:var(--good)}
+.tp-btn{background:none;border:none;color:var(--fg);font-size:20px;cursor:pointer;padding:2px 4px;line-height:1;flex:0 0 auto}
+.tp-btn:active{opacity:.6}
 .player-info{flex:1;min-width:0}
 .player-title{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .player-time{font-size:11px;color:var(--dim);margin-top:1px}
 .seek{width:100%;height:4px;-webkit-appearance:none;appearance:none;background:var(--line);
-      border-radius:2px;cursor:pointer;outline:none;display:block}
-.seek::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--good);cursor:pointer}
+      border-radius:2px;outline:none;display:block;pointer-events:none}
+.seek::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:12px;border-radius:50%;background:var(--good)}
 
 /* Section label */
 .slabel{font-size:11px;font-weight:700;color:var(--dim);letter-spacing:.06em;padding:14px 14px 6px;text-transform:uppercase}
@@ -52,8 +55,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
 /* Track rows */
 .tracks{padding:0 14px}
 .track{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:8px;overflow:hidden}
-.track-row{display:flex;align-items:center;gap:8px;padding:10px 12px 6px;cursor:pointer}
-.track.playing .track-row{cursor:default}
+.track-row{display:flex;align-items:center;gap:8px;padding:10px 12px 6px}
 .tr-num{font-size:12px;color:var(--dim);min-width:22px;text-align:right;flex:0 0 auto}
 .tr-info{flex:1;min-width:0}
 .tr-title{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -105,7 +107,7 @@ body{margin:0;background:var(--bg);color:var(--fg);
 .save-btn:disabled{background:#1f2530;color:var(--dim);cursor:default}
 .save-info{text-align:center;font-size:13px;color:var(--dim);min-height:20px;margin-top:8px}
 
-audio{display:none}
+
 </style>
 </head>
 <body>
@@ -127,13 +129,16 @@ audio{display:none}
 
   <div class="player" id="player">
     <div class="player-top">
-      <button class="play-pause" id="ppBtn" onclick="togglePlay()">&#9654;</button>
+      <span class="dot" id="dot"></span>
+      <button class="tp-btn" onclick="send('prev')">&#9664;&#9664;</button>
+      <button class="tp-btn" id="ppBtn" onclick="send('playpause')">&#9654;</button>
+      <button class="tp-btn" onclick="send('next')">&#9654;&#9654;</button>
       <div class="player-info">
         <div class="player-title" id="pTitle">—</div>
-        <div class="player-time" id="pTime">0:00 / 0:00</div>
+        <div class="player-time" id="pTime">—</div>
       </div>
     </div>
-    <input class="seek" type="range" id="seekBar" value="0" step="1" oninput="onSeek(this.value)">
+    <input class="seek" type="range" id="seekBar" value="0" step="1">
   </div>
 
   <div class="slabel">Songs</div>
@@ -176,20 +181,17 @@ audio{display:none}
   </div>
 </div>
 
-<audio id="audioEl"></audio>
-
 <script>
-const $  = id => document.getElementById(id);
-const au = $('audioEl');
+const $ = id => document.getElementById(id);
 
-let albumId   = 0;
-let tracks    = [];
-let notes     = {};   // songId → note (1-5)
-let selAmg    = 3;
-let selCover  = 2;
-let selWert   = 0;    // 0 = auto
-let wertManual = false;
-let currentId = 0;
+let albumId       = 0;
+let tracks        = [];
+let notes         = {};   // songId → note (1-5)
+let selAmg        = 3;
+let selCover      = 2;
+let selWert       = 0;    // 0 = auto
+let wertManual    = false;
+let currentSongId = null;
 let albumRatingOld = 0;
 
 // ── Formula (1:1 aus New CD.cs / ReRateForm.cs) ──────────────────────────────
@@ -261,7 +263,7 @@ function renderTracks() {
     const dbN  = t.rating || 0;
     const dbLabel = dbN > 0 ? `Note ${dbN}` : 'unbewertet';
     h += `<div class="track" id="tk${t.id}">
-  <div class="track-row" onclick="playTrack(${t.id})">
+  <div class="track-row">
     <span class="tr-num">${t.trackNum||''}</span>
     <div class="tr-info">
       <div class="tr-title">${esc(t.title)}</div>
@@ -293,39 +295,55 @@ function setNote(sid, n) {
   updateScoring();
 }
 
-// ── Audio ────────────────────────────────────────────────────────────────────
-function playTrack(songId) {
-  const t = tracks.find(x => x.id === songId);
-  if (!t) return;
-  currentId = songId;
-  au.src = '/api/stream/' + songId;
-  au.play();
-  $('pTitle').textContent = (t.trackNum ? t.trackNum + '. ' : '') + t.title;
-  $('player').classList.add('vis');
-  document.querySelectorAll('.track').forEach(el => el.classList.remove('playing'));
-  $('tk' + songId)?.classList.add('playing');
+// ── Remote transport ─────────────────────────────────────────────────────────
+async function send(cmd) {
+  try { await fetch('/api/remote/command', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ cmd }) }); }
+  catch {}
+  setTimeout(poll, 150);
 }
 
-function togglePlay() {
-  if (au.paused) au.play(); else au.pause();
+function renderRemoteState(st) {
+  const online = !!(st && st.online);
+  const np = st && st.nowPlaying;
+  $('dot').classList.toggle('on', online);
+
+  if (np && albumId && np.headId === albumId) {
+    $('pTitle').textContent = np.title || '—';
+    const p = np.pos || 0, d = np.dur || 0;
+    $('pTime').textContent = fmt(p) + ' / ' + fmt(d);
+    $('seekBar').max   = Math.round(d) || 1;
+    $('seekBar').value = Math.round(p);
+    $('player').classList.add('vis');
+
+    if (np.songId !== currentSongId) {
+      currentSongId = np.songId;
+      document.querySelectorAll('.track').forEach(el => el.classList.remove('playing'));
+      const row = $('tk' + np.songId);
+      if (row) { row.classList.add('playing'); row.scrollIntoView({ behavior:'smooth', block:'nearest' }); }
+    }
+  } else {
+    $('player').classList.add('vis');
+    if (!np) {
+      $('pTitle').textContent = 'kein Player aktiv';
+      $('pTime').textContent = '—';
+    } else {
+      $('pTitle').textContent = '♪ ' + (np.album || np.title || '—');
+      $('pTime').textContent = 'anderes Album';
+    }
+    if (currentSongId) {
+      currentSongId = null;
+      document.querySelectorAll('.track').forEach(el => el.classList.remove('playing'));
+    }
+  }
 }
 
-function onSeek(v) { if (au.duration) au.currentTime = +v; }
-
-au.addEventListener('timeupdate', () => {
-  const p = au.currentTime, d = au.duration || 0;
-  $('seekBar').max   = Math.round(d);
-  $('seekBar').value = Math.round(p);
-  $('pTime').textContent = fmt(p) + ' / ' + fmt(d);
-});
-au.addEventListener('play',  () => { $('ppBtn').textContent = '⏸'; });
-au.addEventListener('pause', () => { $('ppBtn').textContent = '▶'; });
-au.addEventListener('ended', () => {
-  $('ppBtn').textContent = '▶';
-  const org = tracks.filter(t => t.org === 'T');
-  const i   = org.findIndex(t => t.id === currentId);
-  if (i >= 0 && i < org.length - 1) playTrack(org[i + 1].id);
-});
+async function poll() {
+  try {
+    const st = await (await fetch('/api/remote/state', { cache:'no-store' })).json();
+    renderRemoteState(st);
+  } catch {}
+  setTimeout(poll, 2000);
+}
 
 // ── Save ─────────────────────────────────────────────────────────────────────
 async function doSave() {
@@ -417,6 +435,7 @@ async function load() {
     renderTracks();
     renderCoverBtns();
     updateScoring();
+    poll();
 
   } catch(e) {
     $('title').textContent = 'Fehler: ' + e.message;
