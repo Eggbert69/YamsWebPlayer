@@ -194,6 +194,7 @@ let selWert        = 0;    // 0 = auto
 let wertManual     = false;
 let currentSongId  = null;
 let albumRatingOld = 0;
+let albumLoading   = false; // Guard gegen Race-Condition beim Album-Wechsel
 
 // ── Formula (1:1 aus New CD.cs / ReRateForm.cs) ──────────────────────────────
 function calcD1() {
@@ -313,14 +314,24 @@ function renderRemoteState(st) {
   const np = st && st.nowPlaying;
   $('dot').classList.toggle('on', online);
 
-  // c) anderes Album läuft → Seite neu laden
+  // c) anderes Album läuft → Album neu laden (mit Guard gegen parallele Polls)
   if (np && np.headId && albumId && np.headId !== albumId) {
+    if (albumLoading) return;
+    albumLoading = true;
     albumId = np.headId;
     history.replaceState(null, '', '/evaluation?id=' + albumId);
     currentSongId = null;
-    loadAlbum();
+    loadAlbum().then(async () => {
+      try {
+        const st2 = await (await fetch('/api/remote/state', { cache:'no-store' })).json();
+        renderRemoteState(st2);
+        await rewindToFirst();
+      } catch {}
+      albumLoading = false;
+    });
     return;
   }
+  if (albumLoading) return;
 
   if (np && albumId && np.headId === albumId) {
     $('pTitle').textContent = np.title || '—';
