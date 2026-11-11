@@ -361,7 +361,16 @@ async function doSave() {
 async function load() {
   const params = new URLSearchParams(location.search);
   albumId = +(params.get('id') || 0);
-  if (!albumId) { $('title').textContent = 'Kein Album ausgewählt'; return; }
+
+  if (!albumId) {
+    $('title').textContent = 'Lade aktuelles Album…';
+    try {
+      const st = await (await fetch('/api/remote/state', { cache: 'no-store' })).json();
+      albumId = st.nowPlaying?.headId || 0;
+    } catch {}
+    if (!albumId) { $('title').textContent = 'Kein Album läuft gerade'; return; }
+    history.replaceState(null, '', '/evaluation?id=' + albumId);
+  }
 
   try {
     const [albumRes, evalRes] = await Promise.all([
