@@ -660,6 +660,10 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
 
 /* ── Modus-Button "Verlauf" ── */
 .mode-btn[data-mode="history"].active{color:#fff;background:#0ea5a3;border-color:#0ea5a3}
+#shuffle-all-btn{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-size:13px;cursor:pointer;white-space:nowrap;margin-left:6px}
+#shuffle-all-btn:hover{border-color:var(--gold);color:var(--gold)}
+#shuffle-all-btn:disabled{opacity:.55;cursor:default}
+#shuffle-all-btn.on{background:var(--gold);color:#000;border-color:var(--gold)}
 
 /* ── Verlauf-Ansicht ── */
 #history-wrap{display:none;flex-direction:column;gap:1px;padding:4px 0}
@@ -896,6 +900,7 @@ input[type=range]{padding:3px 0;accent-color:var(--accent)}
     <button class="mode-btn" data-mode="history">&#128336; Verlauf</button>
   </div>
   <span id="result-count"></span>
+  <button id="shuffle-all-btn" onclick="toggleShuffle()" title="Alle angezeigten Alben zufällig abspielen – nochmal klicken für sequenziell">&#128256; Zuf&auml;llig</button>
   <div class="spacer"></div>
   <div id="sort-section">
     <div class="sort-btns">
@@ -1485,6 +1490,9 @@ function switchMode(mode) {
     byp.classList.toggle('best-mode',   mode === 'best');
     yn.classList.remove('visible');
   }
+  const sb = $('shuffle-all-btn');
+  if (sb) sb.style.display = (mode === 'all' || mode === 'best' || mode === 'report') ? '' : 'none';
+
   if (mode === 'all') loadAlbums();
   else if (mode === 'playlists') loadPlaylists();
   else if (isHistory) loadHistory();
@@ -1741,6 +1749,7 @@ function queueClear() {
   Q.songs  = [];
   Q.pos    = -1;
   Q.active = false;
+  Q.shuffle = false;
 }
 
 /**
@@ -1831,7 +1840,11 @@ async function queuePrepend() {
 async function queueNav(delta) {
   if (!Q.active && Q.songs.length === 0) return;
   const newPos = Q.pos + delta;
-  if (newPos < 0) {
+  if (Q.shuffle) {
+    if (newPos < 0 || newPos >= Q.songs.length) {
+      showToast(newPos < 0 ? 'Anfang der Zufallsliste' : 'Ende der Zufallsliste', 1500); return;
+    }
+  } else if (newPos < 0) {
     const ok = await queuePrepend();
     if (!ok) { showToast('Kein vorheriges Album', 1500); return; }
   } else if (newPos >= Q.songs.length) {
@@ -1840,6 +1853,57 @@ async function queueNav(delta) {
   }
   Q.pos = Math.max(0, Math.min(Q.pos + delta, Q.songs.length - 1));
   playCurrent();
+}
+
+// Spielt alle Titel der aktuell angezeigten Alben in zufälliger Reihenfolge.
+async function shuffleVisibleAlbums() {
+  const rows = [...list.querySelectorAll('.album-row')];
+  const ids  = [...new Set(rows.map(r => parseInt(r.dataset.id)).filter(Boolean))];
+  if (!ids.length) { showToast('Keine Alben in der Liste', 1500); return; }
+  const btn = $('shuffle-all-btn');
+  const label = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'lädt …'; }
+  try {
+    const parts = await Promise.all(ids.map(id => queueBuildFrom(id).catch(() => [])));
+    const all = parts.flat();
+    if (!all.length) { showToast('Keine abspielbaren Titel', 2000); return; }
+    for (let i = all.length - 1; i > 0; i--) {       // Fisher-Yates
+      const j = Math.floor(Math.random() * (i + 1));
+      [all[i], all[j]] = [all[j], all[i]];
+    }
+    queueClear();
+    PL.activeId = null;
+    Q.songs = all; Q.pos = 0; Q.active = true; Q.shuffle = true;
+    await ensureAudioCtx();
+    playCurrent();
+    showToast(`\u{1F500} ${all.length} Titel aus ${ids.length} Alben – zufällig`, 3000, true);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
+// Schaltet Zufall aus und spielt ab dem laufenden Titel sequenziell weiter
+// (restliches Album, danach automatisch das nächste Album der Liste).
+async function shuffleOffSequential() {
+  const cur = Q.songs[Q.pos];
+  if (!cur) { Q.shuffle = false; updateShuffleBtn(); return; }
+  try {
+    const seq = await queueBuildFrom(cur.albumId, cur.songId);
+    if (seq.length) { Q.songs = seq; Q.pos = 0; }
+  } catch {}
+  Q.shuffle = false;
+  updateShuffleBtn();
+  updatePlayerBar(cur.title, cur.artist, cur.albumId, Q.pos, Q.songs.length);
+  showToast('Sequenziell ab hier', 2000);
+}
+// Button-Umschalter: läuft Zufall → ausschalten (sequenziell), sonst einschalten.
+function toggleShuffle() {
+  if (Q.shuffle && Q.active) shuffleOffSequential();
+  else shuffleVisibleAlbums();
+}
+function updateShuffleBtn() {
+  const b = $('shuffle-all-btn');
+  if (b) b.classList.toggle('on', !!Q.shuffle);
 }
 
 /**
@@ -1870,6 +1934,7 @@ async function playCurrent() {
   applyPlayHighlight(song.songId, song.albumId);
   updatePlayerBar(song.title, song.artist, song.albumId, Q.pos, Q.songs.length);
   if (S.mode === 'playlists' && PL.activeId != null) highlightPlaylistTrack(Q.pos, PL.activeId);
+  updateShuffleBtn();
   showToast(`\u266b ${song.title}`, 2500, true);  // \u266b = ♫
 }
 
@@ -2167,7 +2232,7 @@ function bindAudioEvents() {
     }
     Q.pos++;
     if (Q.pos >= Q.songs.length) {
-      const extended = (S.mode !== 'playlists') && await queueExtend();
+      const extended = (S.mode !== 'playlists' && !Q.shuffle) && await queueExtend();
       if (!extended) {
         PL.activeId = null;
         queueClear();
@@ -2350,7 +2415,7 @@ bgAudioEl.addEventListener('ended', async () => {
   }
   Q.pos++;
   if (Q.pos >= Q.songs.length) {
-    const extended = (S.mode !== 'playlists') && await queueExtend();
+    const extended = (S.mode !== 'playlists' && !Q.shuffle) && await queueExtend();
     if (!extended) {
       PL.activeId = null;
       bgActive = false;
@@ -3141,7 +3206,7 @@ function playerNext()      { if (Q.pos + 1 < Q.songs.length) { Q.pos++; playCurr
 function playerPrev()      { if (Q.pos > 0) { Q.pos--; playCurrent(); } }
 function playerPlayPause() { if (audioEl.paused) audioEl.play().catch(() => {}); else audioEl.pause(); }
 function playerPause()     { audioEl.pause(); }   // nur pausieren – Queue bleibt erhalten, ⏯ setzt fort
-function playerStop()      { audioEl.pause(); audioEl.src = ''; queueClear(); bgActive = false; bgAudioEl.pause(); releaseWakeLock(); if (SS.open) ssSync(); }
+function playerStop()      { audioEl.pause(); audioEl.src = ''; queueClear(); bgActive = false; bgAudioEl.pause(); releaseWakeLock(); updateShuffleBtn(); if (SS.open) ssSync(); }
 
 function rcExec(cmd) {
   if      (cmd === 'next')           playerNext();
