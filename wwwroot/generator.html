@@ -98,6 +98,15 @@ header h1 .web{color:var(--play)}
 #note-opts.visible{display:flex;flex-direction:column;gap:6px}
 .note-opts-row{display:flex;align-items:center;gap:8px}
 
+/* Quota row */
+#quota-row{display:none;flex-wrap:wrap;gap:6px 14px;align-items:center;padding-top:2px}
+#quota-row.visible{display:flex}
+.q-field{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
+.q-field input{width:54px;text-align:right;padding:3px 7px}
+#quota-sum{font-size:12px;font-weight:700;padding:3px 8px;border-radius:4px;background:var(--bg);border:1px solid var(--border)}
+#quota-sum.ok{color:var(--play);border-color:var(--play)}
+#quota-sum.warn{color:var(--danger);border-color:var(--danger)}
+
 /* Action buttons */
 .action-btns{display:flex;gap:8px;flex-wrap:wrap}
 .btn{
@@ -327,7 +336,7 @@ header h1 .web{color:var(--play)}
           <input type="checkbox" id="chk-comp"> Compilationen einschließen
         </label>
         <div id="note-opts">
-          <div class="note-opts-row">
+          <div class="note-opts-row" id="note-filter-row">
             <span style="font-size:12px;color:var(--muted)">Note:</span>
             <div class="note-btns">
               <button class="note-btn active" data-min="0" data-max="0">Alle</button>
@@ -348,6 +357,17 @@ header h1 .web{color:var(--play)}
           <div class="note-opts-row" id="limit-row" style="display:none">
             <span style="font-size:12px;color:var(--muted)">Max.&#160;Songs:</span>
             <input type="number" id="f-limit" min="10" max="9999" value="500" style="width:72px;text-align:right;padding:4px 8px">
+            <label class="opt-cb" style="margin-left:8px">
+              <input type="checkbox" id="chk-quota"> Quoten
+            </label>
+          </div>
+          <div class="note-opts-row" id="quota-row">
+            <span class="q-field"><label>N1</label><input type="number" class="quota-input" id="q1" min="0" max="100" value="50">%</span>
+            <span class="q-field"><label>N2</label><input type="number" class="quota-input" id="q2" min="0" max="100" value="30">%</span>
+            <span class="q-field"><label>N3</label><input type="number" class="quota-input" id="q3" min="0" max="100" value="20">%</span>
+            <span class="q-field"><label>N4</label><input type="number" class="quota-input" id="q4" min="0" max="100" value="0">%</span>
+            <span class="q-field"><label>N5</label><input type="number" class="quota-input" id="q5" min="0" max="100" value="0">%</span>
+            <span id="quota-sum">Σ 100%</span>
           </div>
         </div>
       </div>
@@ -455,6 +475,7 @@ let curMode    = 'studio';
 let selNote    = 0;
 let selNoteMin = 0;
 let selPlayed  = 0;
+let quotaMode  = false;
 let acTimer  = null;
 let acItems  = [];
 let acIdx    = -1;
@@ -521,6 +542,70 @@ function updateNoteOptsVisibility() {
   noteOpts.classList.toggle('visible', curMode === 'setlist' || curMode === 'live' || hasGenres);
   const limitRow = document.getElementById('limit-row');
   if (limitRow) limitRow.style.display = hasGenres ? '' : 'none';
+  if (!hasGenres && quotaMode) {
+    quotaMode = false;
+    document.getElementById('chk-quota').checked = false;
+    document.getElementById('quota-row').classList.remove('visible');
+    document.getElementById('note-filter-row').style.display = '';
+  }
+}
+
+function shuffleArr(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function updateQuotaSum() {
+  const sum = [1,2,3,4,5].reduce((a,n) => a + (+(document.getElementById('q'+n).value)||0), 0);
+  const el  = document.getElementById('quota-sum');
+  el.textContent = `Σ ${sum}%`;
+  el.className   = sum === 100 ? 'ok' : 'warn';
+}
+
+function getQuotas() {
+  return [1,2,3,4,5].map(n => +(document.getElementById('q'+n).value)||0);
+}
+
+function applyQuota(allSongs, rawQuotas, total) {
+  const sum = rawQuotas.reduce((a,b) => a+b, 0);
+  if (sum === 0) return shuffleArr([...allSongs]).slice(0, total);
+  const norm = rawQuotas.map(q => q / sum);
+
+  const pools = [[],[],[],[],[]];
+  for (const s of allSongs) {
+    const n = (s.note || 0) - 1;
+    if (n >= 0 && n < 5) pools[n].push(s);
+  }
+  pools.forEach(p => shuffleArr(p));
+
+  const targets = norm.map(p => Math.round(p * total));
+  const diff    = total - targets.reduce((a,b) => a+b, 0);
+  const maxIdx  = norm.indexOf(Math.max(...norm));
+  targets[maxIdx] += diff;
+
+  const result   = [];
+  const leftover = [];
+  let   deficit  = 0;
+  for (let i = 0; i < 5; i++) {
+    const want = targets[i];
+    if (want <= 0) { leftover.push(...pools[i]); continue; }
+    if (pools[i].length >= want) {
+      result.push(...pools[i].slice(0, want));
+      leftover.push(...pools[i].slice(want));
+    } else {
+      result.push(...pools[i]);
+      deficit += want - pools[i].length;
+    }
+  }
+  if (deficit > 0 && leftover.length > 0) {
+    shuffleArr(leftover);
+    result.push(...leftover.slice(0, deficit));
+  }
+  shuffleArr(result);
+  return result.slice(0, total);
 }
 
 // ── Artist autocomplete ────────────────────────────────────────────────────────
@@ -621,6 +706,17 @@ document.querySelectorAll('.played-btn').forEach(btn => {
   });
 });
 
+// ── Quota toggle ──────────────────────────────────────────────────────────────
+document.getElementById('chk-quota').addEventListener('change', function() {
+  quotaMode = this.checked;
+  document.getElementById('quota-row').classList.toggle('visible', quotaMode);
+  document.getElementById('note-filter-row').style.display = quotaMode ? 'none' : '';
+  updateQuotaSum();
+});
+document.querySelectorAll('.quota-input').forEach(inp => {
+  inp.addEventListener('input', updateQuotaSum);
+});
+
 // ── Load / Play ────────────────────────────────────────────────────────────────
 btnLoad.addEventListener('click', () => loadSongs());
 btnPlay.addEventListener('click', () => loadSongs(false));
@@ -631,10 +727,11 @@ async function loadSongs(autoPlay = null) {
   const inclComp   = document.getElementById('chk-comp').checked;
   const hasGenres  = genreGenres.length > 0;
   const noteActive = curMode === 'setlist' || curMode === 'live' || hasGenres;
-  const maxNote    = noteActive ? selNote    : 0;
-  const minNote    = noteActive ? selNoteMin : 0;
+  const useQuota   = quotaMode && hasGenres;
+  const maxNote    = (noteActive && !useQuota) ? selNote    : 0;
+  const minNote    = (noteActive && !useQuota) ? selNoteMin : 0;
   const played     = noteActive ? selPlayed  : 0;
-  const maxSongs   = hasGenres ? +(document.getElementById('f-limit')?.value || 0) : 0;
+  const maxSongs   = (hasGenres && !useQuota) ? +(document.getElementById('f-limit')?.value || 0) : 0;
   const headTyp    = curMode === 'live' ? 'L' : 'S';
 
   loadingEl.classList.add('visible');
@@ -648,7 +745,13 @@ async function loadSongs(autoPlay = null) {
     if (genreGenres.length) url += `&genres=${encodeURIComponent(genreGenres.join(','))}`;
     const res  = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
-    songs = await res.json();
+    let raw = await res.json();
+    if (useQuota) {
+      const total = +(document.getElementById('f-limit')?.value || 500);
+      songs = applyQuota(raw, getQuotas(), total);
+    } else {
+      songs = raw;
+    }
   } catch (e) {
     loadingEl.classList.remove('visible');
     emptyState.style.display = '';
@@ -691,7 +794,15 @@ function renderSongList() {
 
   const totalSecs = songs.reduce((a,s) => a + s.secs, 0);
   const h = Math.floor(totalSecs/3600), m = Math.floor((totalSecs%3600)/60);
-  resultsInfo.textContent = `${songs.length} Songs  ·  ${albums.length} Alben  ·  ${h}h ${m}min`;
+  const noteCounts = [1,2,3,4,5].map(n => songs.filter(s => s.note === n).length);
+  const noteChips = quotaMode
+    ? '<div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">'
+      + noteCounts.map((c,i) =>
+          `<span style="background:var(--card);border:1px solid var(--border);border-radius:5px;padding:3px 10px;font-size:13px;font-weight:600;color:var(--gold)">N${i+1} <span style="color:var(--text)">${c}</span></span>`
+        ).join('')
+      + '</div>'
+    : '';
+  resultsInfo.innerHTML = `<span>${songs.length} Songs  ·  ${albums.length} Alben  ·  ${h}h ${m}min</span>${noteChips}`;
   resultsInfo.classList.add('visible');
 
   songList.innerHTML = '';
